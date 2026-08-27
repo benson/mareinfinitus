@@ -1,5 +1,3 @@
-@import 'tailwindcss';
-
 :root {
   color-scheme: dark;
   --ink: #f2ecff;
@@ -18,7 +16,7 @@ body {
   margin: 0;
   overflow: hidden;
   background: #060612;
-  font-family: var(--font-mono), monospace;
+  font-family: "Lucida Console", Monaco, monospace;
 }
 
 button { font: inherit; }
@@ -29,7 +27,10 @@ button { font: inherit; }
   overflow: hidden;
   background: #060612;
   color: var(--ink);
+  cursor: default;
 }
+
+.mare-shell.ui-hidden { cursor: none; }
 
 .mare-canvas {
   position: absolute;
@@ -38,6 +39,15 @@ button { font: inherit; }
   height: 100%;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
+}
+
+.ui-chrome {
+  transition: opacity 500ms ease, transform 500ms ease;
+}
+
+.ui-hidden .ui-chrome {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .lab-header {
@@ -131,5 +141,6 @@ button { font: inherit; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .ui-chrome,
   .style-switcher button { transition: none; }
 }
