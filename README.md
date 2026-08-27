@@ -20,6 +20,8 @@ Then open `http://localhost:3000/`.
 ## Controls
 
 - `A`, `B`, `C`: visual-density palettes
+- drag through the ocean: inject momentum and suspended material
+- `D`: show or hide the simulated current field
 - `F`: fullscreen
 - `H`: hide or show the interface
 

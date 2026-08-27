@@ -3,6 +3,7 @@
 
   var ART_PIXEL = 3;
   var WATERLINE = 0.36;
+  var FLUID_CELL = 6;
 
   var PALETTES = {
     A: {
@@ -40,6 +41,10 @@
   var mode = "B";
   var particles = [];
   var ripples = [];
+  var fluid = null;
+  var debugFlow = false;
+  var raft = { x: -42, y: 0, vx: 1.1, vy: 0, angle: 0, angularVelocity: 0 };
+  var pointer = { down: false, x: 0, y: 0 };
   var width = 1;
   var height = 1;
   var started = performance.now();
@@ -143,53 +148,184 @@
     return false;
   }
 
-  function addEddy(flow, x, y, cx, cy, radius, strength) {
-    var dx = x - cx;
-    var dy = y - cy;
-    var d2 = dx * dx + dy * dy;
-    if (d2 > radius * radius || d2 < 1) return;
-    var falloff = (1 - d2 / (radius * radius)) * strength;
-    flow.x += (-dy / radius) * falloff;
-    flow.y += (dx / radius) * falloff;
+  function fluidIndex(col, row) {
+    return row * fluid.cols + col;
   }
 
-  function flowAt(x, y, time, geometry, actors) {
-    var depth = clamp((y - geometry.line) / Math.max(1, height - geometry.line), 0, 1);
-    var flow = {
-      x: 0.34 + Math.sin(y * 0.027 + time * 0.15) * 0.11,
-      y: Math.sin(x * 0.021 - time * 0.18) * 0.08 * (1 - depth * 0.55)
+  function createFluid(geometry) {
+    var cols = Math.ceil(width / FLUID_CELL) + 1;
+    var rows = Math.ceil((height - geometry.line) / FLUID_CELL) + 1;
+    var size = cols * rows;
+    fluid = {
+      cols: cols,
+      rows: rows,
+      line: geometry.line,
+      u: new Float32Array(size),
+      v: new Float32Array(size),
+      u0: new Float32Array(size),
+      v0: new Float32Array(size),
+      pressure: new Float32Array(size),
+      pressure0: new Float32Array(size),
+      divergence: new Float32Array(size),
+      dye: new Float32Array(size),
+      dye0: new Float32Array(size),
+      solid: new Uint8Array(size)
     };
+    for (var row = 0; row < rows; row += 1) {
+      for (var col = 0; col < cols; col += 1) {
+        var index = row * cols + col;
+        var worldX = col * FLUID_CELL;
+        var worldY = geometry.line + row * FLUID_CELL;
+        fluid.u[index] = 0.3;
+        fluid.solid[index] = isSolid(worldX, worldY, geometry) ? 1 : 0;
+      }
+    }
+  }
 
-    for (var i = 0; i < geometry.pylons.length; i += 1) {
-      addEddy(flow, x, y, geometry.pylons[i], geometry.line + 27, 19, i % 2 ? 0.56 : -0.56);
+  function sampleFluidArray(array, gridX, gridY) {
+    if (!fluid) return 0;
+    var x = clamp(gridX, 0, fluid.cols - 1.001);
+    var y = clamp(gridY, 0, fluid.rows - 1.001);
+    var x0 = Math.floor(x);
+    var y0 = Math.floor(y);
+    var x1 = Math.min(fluid.cols - 1, x0 + 1);
+    var y1 = Math.min(fluid.rows - 1, y0 + 1);
+    var tx = x - x0;
+    var ty = y - y0;
+    var a = array[fluidIndex(x0, y0)] * (1 - tx) + array[fluidIndex(x1, y0)] * tx;
+    var b = array[fluidIndex(x0, y1)] * (1 - tx) + array[fluidIndex(x1, y1)] * tx;
+    return a * (1 - ty) + b * ty;
+  }
+
+  function sampleFluid(x, y) {
+    if (!fluid || y < fluid.line) return { x: 0.3, y: 0, dye: 0 };
+    var gridX = x / FLUID_CELL;
+    var gridY = (y - fluid.line) / FLUID_CELL;
+    return {
+      x: sampleFluidArray(fluid.u, gridX, gridY),
+      y: sampleFluidArray(fluid.v, gridX, gridY),
+      dye: sampleFluidArray(fluid.dye, gridX, gridY)
+    };
+  }
+
+  function injectFluid(x, y, forceX, forceY, radius, dyeAmount) {
+    if (!fluid || y < fluid.line - radius) return;
+    var minCol = clamp(Math.floor((x - radius) / FLUID_CELL), 0, fluid.cols - 1);
+    var maxCol = clamp(Math.ceil((x + radius) / FLUID_CELL), 0, fluid.cols - 1);
+    var minRow = clamp(Math.floor((y - radius - fluid.line) / FLUID_CELL), 0, fluid.rows - 1);
+    var maxRow = clamp(Math.ceil((y + radius - fluid.line) / FLUID_CELL), 0, fluid.rows - 1);
+    for (var row = minRow; row <= maxRow; row += 1) {
+      for (var col = minCol; col <= maxCol; col += 1) {
+        var index = fluidIndex(col, row);
+        if (fluid.solid[index]) continue;
+        var dx = col * FLUID_CELL - x;
+        var dy = fluid.line + row * FLUID_CELL - y;
+        var distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance >= radius) continue;
+        var falloff = 1 - distance / radius;
+        fluid.u[index] += forceX * falloff;
+        fluid.v[index] += forceY * falloff;
+        fluid.dye[index] = clamp(fluid.dye[index] + dyeAmount * falloff, 0, 1.5);
+      }
+    }
+  }
+
+  function projectFluid() {
+    var cols = fluid.cols;
+    var rows = fluid.rows;
+    fluid.pressure.fill(0);
+    for (var row = 1; row < rows - 1; row += 1) {
+      for (var col = 1; col < cols - 1; col += 1) {
+        var index = fluidIndex(col, row);
+        if (fluid.solid[index]) continue;
+        fluid.divergence[index] = -0.5 * (
+          fluid.u[fluidIndex(col + 1, row)] - fluid.u[fluidIndex(col - 1, row)] +
+          fluid.v[fluidIndex(col, row + 1)] - fluid.v[fluidIndex(col, row - 1)]
+        );
+      }
     }
 
-    addEddy(
-      flow,
-      x,
-      y,
-      actors.leviathanX,
-      actors.leviathanY,
-      54,
-      Math.sin(time * 0.11) * 0.52
-    );
-
-    var wakeDx = actors.raftX - x;
-    var wakeDy = actors.raftY - y;
-    if (wakeDx > -8 && wakeDx < 70 && Math.abs(wakeDy) < 24) {
-      flow.x += (1 - Math.abs(wakeDx) / 70) * 0.28;
-      flow.y += Math.sin(wakeDx * 0.3) * 0.14;
+    for (var iteration = 0; iteration < 7; iteration += 1) {
+      fluid.pressure0.set(fluid.pressure);
+      for (var py = 1; py < rows - 1; py += 1) {
+        for (var px = 1; px < cols - 1; px += 1) {
+          var pressureIndex = fluidIndex(px, py);
+          if (fluid.solid[pressureIndex]) continue;
+          fluid.pressure[pressureIndex] = (
+            fluid.divergence[pressureIndex] +
+            fluid.pressure0[fluidIndex(px - 1, py)] +
+            fluid.pressure0[fluidIndex(px + 1, py)] +
+            fluid.pressure0[fluidIndex(px, py - 1)] +
+            fluid.pressure0[fluidIndex(px, py + 1)]
+          ) * 0.25;
+        }
+      }
     }
 
-    if (
-      x > geometry.left - 20 &&
-      x < geometry.right &&
-      y > geometry.foundationTop - 18 &&
-      y < geometry.foundationBottom + 22
-    ) {
-      flow.x *= 0.45;
-      flow.y += x < geometry.left ? -0.16 : 0.04;
+    for (var vy = 1; vy < rows - 1; vy += 1) {
+      for (var vx = 1; vx < cols - 1; vx += 1) {
+        var velocityIndex = fluidIndex(vx, vy);
+        if (fluid.solid[velocityIndex]) {
+          fluid.u[velocityIndex] = 0;
+          fluid.v[velocityIndex] = 0;
+          continue;
+        }
+        fluid.u[velocityIndex] -= 0.5 * (
+          fluid.pressure[fluidIndex(vx + 1, vy)] - fluid.pressure[fluidIndex(vx - 1, vy)]
+        );
+        fluid.v[velocityIndex] -= 0.5 * (
+          fluid.pressure[fluidIndex(vx, vy + 1)] - fluid.pressure[fluidIndex(vx, vy - 1)]
+        );
+      }
     }
+  }
+
+  function updateFluid(dt, time, geometry, actors) {
+    if (!fluid) return;
+    fluid.u0.set(fluid.u);
+    fluid.v0.set(fluid.v);
+    fluid.dye0.set(fluid.dye);
+
+    for (var row = 0; row < fluid.rows; row += 1) {
+      for (var col = 0; col < fluid.cols; col += 1) {
+        var index = fluidIndex(col, row);
+        if (fluid.solid[index]) {
+          fluid.u[index] = 0;
+          fluid.v[index] = 0;
+          fluid.dye[index] *= 0.92;
+          continue;
+        }
+        var backX = col - fluid.u0[index] * dt / FLUID_CELL;
+        var backY = row - fluid.v0[index] * dt / FLUID_CELL;
+        var depth = row / Math.max(1, fluid.rows - 1);
+        var targetCurrent = 0.28 + Math.sin(row * 0.21 + time * 0.08) * 0.06 * (1 - depth);
+        fluid.u[index] = sampleFluidArray(fluid.u0, backX, backY) * 0.997 + targetCurrent * 0.003;
+        fluid.v[index] = sampleFluidArray(fluid.v0, backX, backY) * 0.994;
+        fluid.dye[index] = sampleFluidArray(fluid.dye0, backX, backY) * 0.986;
+      }
+    }
+
+    for (var top = 0; top < fluid.cols; top += 1) {
+      var topIndex = fluidIndex(top, 0);
+      if (!fluid.solid[topIndex]) {
+        fluid.u[topIndex] += Math.sin(top * 0.31 + time * 0.35) * 0.008;
+        fluid.v[topIndex] += Math.sin(top * 0.18 - time * 0.42) * 0.006;
+      }
+    }
+
+    for (var pylon = 0; pylon < geometry.pylons.length; pylon += 1) {
+      var direction = pylon % 2 ? 1 : -1;
+      injectFluid(geometry.pylons[pylon] + 5, geometry.line + 30, 0.02, direction * 0.025, 12, 0.006);
+    }
+    injectFluid(actors.raftX - 12, geometry.line + 5, actors.raftVX * 0.08, actors.raftVY * 0.08, 22, 0.045);
+    injectFluid(actors.leviathanX - 28, actors.leviathanY, 0.04, Math.sin(time * 0.16) * 0.035, 46, 0.018);
+    projectFluid();
+  }
+
+  function flowAt(x, y, time) {
+    var flow = sampleFluid(x, y);
+    flow.x += Math.sin(y * 0.025 + time * 0.12) * 0.025;
+    flow.y += Math.sin(x * 0.018 - time * 0.14) * 0.018;
     return flow;
   }
 
@@ -209,7 +345,7 @@
     var blend = 1 - Math.exp(-dt * 2.1);
     for (var i = 0; i < particles.length; i += 1) {
       var particle = particles[i];
-      var flow = flowAt(particle.x, particle.y, time, geometry, actors);
+      var flow = flowAt(particle.x, particle.y, time);
       var targetX = flow.x;
       var targetY = flow.y;
 
@@ -478,6 +614,50 @@
     }
   }
 
+  function drawFluidMaterial(palette) {
+    if (!fluid) return;
+    for (var row = 0; row < fluid.rows; row += 1) {
+      for (var col = 0; col < fluid.cols; col += 1) {
+        var index = fluidIndex(col, row);
+        var dye = fluid.dye[index];
+        if (dye < 0.035 || fluid.solid[index]) continue;
+        var x = col * FLUID_CELL;
+        var y = fluid.line + row * FLUID_CELL;
+        var velocityX = fluid.u[index];
+        var velocityY = fluid.v[index];
+        ctx.globalAlpha = clamp(dye * 0.42, 0.05, 0.42);
+        ctx.fillStyle = velocityY < -0.08 ? palette.bubble : palette.plankton;
+        ctx.fillRect(
+          Math.floor(x),
+          Math.floor(y),
+          Math.max(1, Math.floor(1 + Math.abs(velocityX) * 2.4)),
+          Math.max(1, Math.floor(1 + Math.abs(velocityY) * 1.6))
+        );
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawFluidDebug(palette) {
+    if (!debugFlow || !fluid) return;
+    ctx.strokeStyle = palette.bubble;
+    ctx.globalAlpha = 0.62;
+    ctx.lineWidth = 1;
+    for (var row = 1; row < fluid.rows; row += 3) {
+      for (var col = 1; col < fluid.cols; col += 3) {
+        var index = fluidIndex(col, row);
+        if (fluid.solid[index]) continue;
+        var x = col * FLUID_CELL;
+        var y = fluid.line + row * FLUID_CELL;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + fluid.u[index] * 8, y + fluid.v[index] * 8);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function drawParticles(palette) {
     ctx.globalAlpha = mode === "A" ? 0.63 : mode === "B" ? 0.75 : 0.86;
     for (var i = 0; i < particles.length; i += 1) {
@@ -594,15 +774,41 @@
     }
   }
 
-  function drawRaft(time, palette, line) {
-    var cycle = width + 110;
-    var x = ((time * 1.65) % cycle) - 55;
-    var y = surfaceY(x + 15, time, line, x) - 4;
-    var tilt = clamp((surfaceY(x + 27, time, line, x) - surfaceY(x, time, line, x)) / 27, -0.12, 0.12);
+  function updateRaft(dt, time, line) {
+    if (!raft.y) raft.y = surfaceY(raft.x + 14, time, line, raft.x) - 4;
+    var localFlow = sampleFluid(raft.x + 14, line + 7);
+    var targetVelocity = 1.15 + localFlow.x * 0.85;
+    raft.vx += (targetVelocity - raft.vx) * dt * 0.55;
+    raft.x += raft.vx * dt;
+
+    var targetY = surfaceY(raft.x + 14, time, line, raft.x) - 4;
+    var lift = (targetY - raft.y) * 5.2 - raft.vy * 3.1;
+    raft.vy += lift * dt;
+    raft.y += raft.vy * dt;
+
+    var slope = (
+      surfaceY(raft.x + 27, time, line, raft.x) -
+      surfaceY(raft.x, time, line, raft.x)
+    ) / 27;
+    var angleForce = (slope - raft.angle) * 3.2 - raft.angularVelocity * 2.5;
+    raft.angularVelocity += angleForce * dt;
+    raft.angle += raft.angularVelocity * dt;
+
+    if (raft.x > width + 62) {
+      raft.x = -58;
+      raft.y = surfaceY(raft.x + 14, time, line, raft.x) - 4;
+      raft.vy = 0;
+      raft.angle = 0;
+    }
+  }
+
+  function drawRaft(time, palette) {
+    var x = raft.x;
+    var y = raft.y;
 
     ctx.save();
     ctx.translate(Math.floor(x + 14), Math.floor(y + 2));
-    ctx.rotate(tilt);
+    ctx.rotate(clamp(raft.angle, -0.16, 0.16));
     ctx.fillStyle = palette.timberLight;
     ctx.fillRect(-14, -2, 29, 3);
     ctx.fillStyle = palette.timber;
@@ -614,7 +820,6 @@
     drawPerson(2, -3, time * 0.9 + 2, palette.kelp, -1);
     drawPerson(10, -3, time * 1.05 + 4, palette.foam, -1);
     ctx.restore();
-    return { x: x, y: y };
   }
 
   function drawCarpet(time, palette, line) {
@@ -653,31 +858,34 @@
   function drawWorld(time, dt) {
     var palette = PALETTES[mode];
     var geometry = platformGeometry();
-    var raftCycle = width + 110;
-    var raftX = ((time * 1.65) % raftCycle) - 55;
-    var raftY = surfaceY(raftX + 15, time, geometry.line, raftX) - 4;
+    updateRaft(dt, time, geometry.line);
     var leviathanCycle = width + 260;
     var leviathanX = ((time * 0.17) % leviathanCycle) - 130;
     var leviathanY = geometry.line + (height - geometry.line) * 0.69 + Math.sin(time * 0.08) * 12;
     var actors = {
-      raftX: raftX,
-      raftY: raftY,
+      raftX: raft.x,
+      raftY: raft.y,
+      raftVX: raft.vx,
+      raftVY: raft.vy,
       leviathanX: leviathanX,
       leviathanY: leviathanY
     };
 
+    updateFluid(dt, time, geometry, actors);
     updateParticles(dt, time, geometry, actors);
     drawSky(time, palette, geometry.line);
-    drawWater(time, palette, geometry.line, raftX);
+    drawWater(time, palette, geometry.line, raft.x);
     drawPortal(time, palette, geometry.line);
     drawSubstructure(time, palette, geometry);
     drawLeviathan(time, palette, actors);
     drawFloatingKelp(time, palette, geometry.line);
+    drawFluidMaterial(palette);
     drawParticles(palette);
-    drawSurface(time, palette, geometry.line, raftX);
+    drawSurface(time, palette, geometry.line, raft.x);
     drawPlatform(time, palette, geometry);
-    drawRaft(time, palette, geometry.line);
+    drawRaft(time, palette);
     drawCarpet(time, palette, geometry.line);
+    drawFluidDebug(palette);
   }
 
   function resize() {
@@ -688,7 +896,9 @@
     canvas.style.width = width * ART_PIXEL + "px";
     canvas.style.height = height * ART_PIXEL + "px";
     ctx.imageSmoothingEnabled = false;
+    createFluid(platformGeometry());
     createParticles();
+    raft.y = surfaceY(raft.x + 14, 0, Math.floor(height * WATERLINE), raft.x) - 4;
   }
 
   function setMode(nextMode) {
@@ -707,6 +917,39 @@
     uiTimer = window.setTimeout(function () {
       shell.classList.add("ui-hidden");
     }, 5500);
+  }
+
+  function pointerPosition(event) {
+    var rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * width / rect.width,
+      y: (event.clientY - rect.top) * height / rect.height
+    };
+  }
+
+  function stirWater(event, firstContact) {
+    var position = pointerPosition(event);
+    var line = Math.floor(height * WATERLINE);
+    if (position.y < line - 5) {
+      pointer.x = position.x;
+      pointer.y = position.y;
+      return;
+    }
+    var dx = firstContact ? 0 : position.x - pointer.x;
+    var dy = firstContact ? 0 : position.y - pointer.y;
+    injectFluid(
+      position.x,
+      Math.max(line + 1, position.y),
+      clamp(dx * 0.7, -3.4, 3.4),
+      clamp(dy * 0.7, -3.4, 3.4),
+      firstContact ? 18 : 27,
+      firstContact ? 0.72 : 0.28
+    );
+    if (firstContact && Math.abs(position.y - line) < 20 && ripples.length < 18) {
+      ripples.push({ x: position.x, age: 0, amp: 1.45 });
+    }
+    pointer.x = position.x;
+    pointer.y = position.y;
   }
 
   function render(now) {
@@ -728,6 +971,21 @@
     if (key === "A" || key === "B" || key === "C") setMode(key);
     if (key === "F") document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (key === "H") shell.classList.toggle("ui-hidden");
+    if (key === "D") debugFlow = !debugFlow;
+  });
+  canvas.addEventListener("pointerdown", function (event) {
+    pointer.down = true;
+    canvas.setPointerCapture && canvas.setPointerCapture(event.pointerId);
+    stirWater(event, true);
+  });
+  canvas.addEventListener("pointermove", function (event) {
+    if (pointer.down) stirWater(event, false);
+  });
+  canvas.addEventListener("pointerup", function () {
+    pointer.down = false;
+  });
+  canvas.addEventListener("pointercancel", function () {
+    pointer.down = false;
   });
   window.addEventListener("resize", resize);
   window.addEventListener("pointermove", showInterface, { passive: true });
