@@ -5,6 +5,7 @@ import './globals.css';
 const mono = Geist_Mono({ variable: '--font-mono', subsets: ['latin'] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://mare-infinitus.bensonperry.chatgpt.site'),
   title: 'Mare Infinitus — Material Study',
   description: 'A living pixel simulation of an endless alien ocean.',
   openGraph: {
