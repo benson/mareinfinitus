@@ -1,0 +1,135 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+  --ink: #f2ecff;
+  --muted: #aaa2c1;
+  --glass: rgb(7 7 18 / 72%);
+  --line: rgb(232 221 255 / 17%);
+  --accent: #ffc35a;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #060612;
+  font-family: var(--font-mono), monospace;
+}
+
+button { font: inherit; }
+
+.mare-shell {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #060612;
+  color: var(--ink);
+}
+
+.mare-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.lab-header {
+  position: absolute;
+  top: 20px;
+  left: 22px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  pointer-events: none;
+  text-shadow: 0 2px 8px rgb(0 0 0 / 65%);
+}
+
+.lab-header p,
+.style-switcher p {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .15em;
+}
+
+.lab-header span {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: .08em;
+}
+
+.style-switcher {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: min(286px, calc(100vw - 36px));
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  box-shadow: 0 10px 40px rgb(0 0 0 / 25%);
+  backdrop-filter: blur(10px);
+}
+
+.style-switcher > div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin: 9px 0 8px;
+}
+
+.style-switcher button {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  padding: 8px;
+  border: 1px solid transparent;
+  background: rgb(255 255 255 / 5%);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 8px;
+  letter-spacing: .04em;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.style-switcher button:hover { background: rgb(255 255 255 / 9%); }
+
+.style-switcher button.active {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--ink);
+}
+
+.style-switcher button span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.style-switcher small {
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: .04em;
+}
+
+.mode-a { --accent: #d39b32; }
+.mode-b { --accent: #ffc35a; }
+.mode-c { --accent: #ffd36d; }
+
+@media (max-width: 560px) {
+  .lab-header { top: 14px; left: 14px; }
+  .lab-header span { display: none; }
+  .style-switcher { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .style-switcher button { transition: none; }
+}
