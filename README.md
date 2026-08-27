@@ -36,6 +36,14 @@ Then open `http://localhost:3000/`.
 - advected nutrients and plankton, grazing schools, and a feeding leviathan
 - slowly evolving weather, tidal current reversal, rain, and rare storms
 
+## Raster/world contract
+
+- one art pixel is always exactly `3 × 3` display pixels
+- world objects live at stable world coordinates; the viewport is only a camera crop
+- resizing reveals or hides world area and preserves the running material state
+- structures are assembled from fixed integer-pixel modules, panels, discs, and raster lines
+- viewport-sized rectangles are reserved for environmental fields such as sky and water
+
 The interface also fades away automatically for screensaver-style viewing.
 
 ## Hosting

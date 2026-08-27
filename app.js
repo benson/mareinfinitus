@@ -2,9 +2,13 @@
   "use strict";
 
   var ART_PIXEL = 3;
-  var WATERLINE = 0.36;
   var FLUID_CELL = 6;
   var SURFACE_CELL = 2;
+  var REFERENCE_WIDTH = 427;
+  var PLATFORM_WORLD_LEFT = 145;
+  var PLATFORM_WORLD_WIDTH = 390;
+  var WORLD_WRAP_LEFT = -120;
+  var WORLD_WRAP_RIGHT = 680;
 
   var PALETTES = {
     A: {
@@ -49,6 +53,7 @@
   var debugFlow = false;
   var raft = { x: -42, y: 0, vx: 1.1, vy: 0, angle: 0, angularVelocity: 0 };
   var leviathan = { x: -130, y: 0, vx: 0.17, vy: 0 };
+  var carpet = { x: 470, y: 0, vx: -3.2, vy: 0 };
   var environment = {
     tide: 0,
     tideVelocity: 0,
@@ -72,6 +77,7 @@
   var pointer = { down: false, x: 0, y: 0 };
   var width = 1;
   var height = 1;
+  var cameraX = 0;
   var started = performance.now();
   var lastFrame = started;
   var uiTimer = 0;
@@ -89,12 +95,29 @@
     return a + (b - a) * amount;
   }
 
+  function waterlineY() {
+    return Math.floor(clamp(86 + (height - 240) * 0.065, 76, 112));
+  }
+
+  function worldToScreenX(worldX) {
+    return worldX - cameraX;
+  }
+
+  function screenToWorldX(screenX) {
+    return screenX + cameraX;
+  }
+
+  function wrapWorldX(worldX) {
+    var span = WORLD_WRAP_RIGHT - WORLD_WRAP_LEFT;
+    return ((worldX - WORLD_WRAP_LEFT) % span + span) % span + WORLD_WRAP_LEFT;
+  }
+
   function platformGeometry() {
-    var line = Math.floor(height * WATERLINE);
-    var left = Math.max(18, Math.floor(width * 0.34));
-    var right = width + 8;
+    var line = waterlineY();
+    var left = worldToScreenX(PLATFORM_WORLD_LEFT);
+    var right = worldToScreenX(PLATFORM_WORLD_LEFT + PLATFORM_WORLD_WIDTH);
     var deck = line - 36;
-    var pylonCount = Math.max(9, Math.floor((right - left) / 17));
+    var pylonCount = Math.floor(PLATFORM_WORLD_WIDTH / 17) + 1;
     var pylons = [];
     for (var i = 0; i < pylonCount; i += 1) {
       pylons.push(left + 8 + i * ((right - left - 16) / Math.max(1, pylonCount - 1)));
@@ -115,6 +138,94 @@
     for (var y = -radius; y <= radius; y += 1) {
       var half = Math.floor(Math.sqrt(radius * radius - y * y));
       ctx.fillRect(Math.floor(cx - half), Math.floor(cy + y), half * 2 + 1, 1);
+    }
+  }
+
+  function pixelRect(x, y, rectWidth, rectHeight, color) {
+    var left = Math.round(x);
+    var top = Math.round(y);
+    var right = Math.round(x + rectWidth);
+    var bottom = Math.round(y + rectHeight);
+    if (right <= left || bottom <= top) return;
+    ctx.fillStyle = color;
+    ctx.fillRect(left, top, right - left, bottom - top);
+  }
+
+  function pixelLine(x0, y0, x1, y1, color, thickness) {
+    var startX = Math.round(x0);
+    var startY = Math.round(y0);
+    var endX = Math.round(x1);
+    var endY = Math.round(y1);
+    var dx = Math.abs(endX - startX);
+    var sx = startX < endX ? 1 : -1;
+    var dy = -Math.abs(endY - startY);
+    var sy = startY < endY ? 1 : -1;
+    var error = dx + dy;
+    var size = Math.max(1, Math.round(thickness || 1));
+    ctx.fillStyle = color;
+    while (true) {
+      ctx.fillRect(startX - Math.floor(size / 2), startY - Math.floor(size / 2), size, size);
+      if (startX === endX && startY === endY) break;
+      var doubled = error * 2;
+      if (doubled >= dy) {
+        error += dy;
+        startX += sx;
+      }
+      if (doubled <= dx) {
+        error += dx;
+        startY += sy;
+      }
+    }
+  }
+
+  function pixelArc(cx, cy, radius, startAngle, endAngle, color, thickness) {
+    var steps = Math.max(12, Math.ceil(radius * Math.abs(endAngle - startAngle) * 1.4));
+    var previousX = cx + Math.cos(startAngle) * radius;
+    var previousY = cy + Math.sin(startAngle) * radius;
+    for (var step = 1; step <= steps; step += 1) {
+      var angle = lerp(startAngle, endAngle, step / steps);
+      var x = cx + Math.cos(angle) * radius;
+      var y = cy + Math.sin(angle) * radius;
+      pixelLine(previousX, previousY, x, y, color, thickness);
+      previousX = x;
+      previousY = y;
+    }
+  }
+
+  function moduleSpan(x, y, spanWidth, spanHeight, base, light, dark, seed, moduleWidth) {
+    var widthLeft = Math.max(0, Math.round(spanWidth));
+    var cursor = Math.round(x);
+    var module = Math.max(4, Math.round(moduleWidth || 9));
+    while (widthLeft > 0) {
+      var pieceWidth = Math.min(module, widthLeft);
+      pixelRect(cursor, y, pieceWidth, spanHeight, dark);
+      if (pieceWidth > 2 && spanHeight > 2) {
+        pixelRect(cursor + 1, y + 1, pieceWidth - 2, spanHeight - 2, base);
+        pixelRect(cursor + 1, y + 1, pieceWidth - 2, 1, light);
+      }
+      if (pieceWidth > 5 && hash(seed + cursor * 0.37) > 0.42) {
+        pixelRect(cursor + pieceWidth - 2, y + Math.max(1, spanHeight - 2), 1, 1, light);
+      }
+      cursor += pieceWidth;
+      widthLeft -= pieceWidth;
+    }
+  }
+
+  function panelBlock(x, y, blockWidth, blockHeight, base, light, dark, seed) {
+    var tileWidth = 12;
+    var tileHeight = 9;
+    for (var py = 0; py < blockHeight; py += tileHeight) {
+      for (var px = 0; px < blockWidth; px += tileWidth) {
+        var pieceWidth = Math.min(tileWidth, blockWidth - px);
+        var pieceHeight = Math.min(tileHeight, blockHeight - py);
+        pixelRect(x + px, y + py, pieceWidth, pieceHeight, dark);
+        if (pieceWidth > 2 && pieceHeight > 2) {
+          pixelRect(x + px + 1, y + py + 1, pieceWidth - 2, pieceHeight - 2, base);
+          if (hash(seed + px * 2.3 + py * 7.1) > 0.5) {
+            pixelRect(x + px + 2, y + py + 2, Math.max(1, pieceWidth - 4), 1, light);
+          }
+        }
+      }
     }
   }
 
@@ -208,7 +319,7 @@
   }
 
   function createParticles() {
-    var line = Math.floor(height * WATERLINE);
+    var line = waterlineY();
     var geometry = platformGeometry();
     var count = Math.min(3200, Math.floor((width * Math.max(1, height - line)) / 118));
     particles = [];
@@ -233,7 +344,7 @@
   }
 
   function createSwimmers() {
-    var line = Math.floor(height * WATERLINE);
+    var line = waterlineY();
     var count = clamp(Math.floor(width / 16), 18, 54);
     swimmers = [];
     for (var i = 0; i < count; i += 1) {
@@ -309,19 +420,24 @@
     }
   }
 
-  function sampleFluidArray(array, gridX, gridY) {
-    if (!fluid) return 0;
-    var x = clamp(gridX, 0, fluid.cols - 1.001);
-    var y = clamp(gridY, 0, fluid.rows - 1.001);
+  function sampleGridArray(array, cols, rows, gridX, gridY) {
+    if (!array || cols < 1 || rows < 1) return 0;
+    var x = clamp(gridX, 0, cols - 1.001);
+    var y = clamp(gridY, 0, rows - 1.001);
     var x0 = Math.floor(x);
     var y0 = Math.floor(y);
-    var x1 = Math.min(fluid.cols - 1, x0 + 1);
-    var y1 = Math.min(fluid.rows - 1, y0 + 1);
+    var x1 = Math.min(cols - 1, x0 + 1);
+    var y1 = Math.min(rows - 1, y0 + 1);
     var tx = x - x0;
     var ty = y - y0;
-    var a = array[fluidIndex(x0, y0)] * (1 - tx) + array[fluidIndex(x1, y0)] * tx;
-    var b = array[fluidIndex(x0, y1)] * (1 - tx) + array[fluidIndex(x1, y1)] * tx;
+    var a = array[y0 * cols + x0] * (1 - tx) + array[y0 * cols + x1] * tx;
+    var b = array[y1 * cols + x0] * (1 - tx) + array[y1 * cols + x1] * tx;
     return a * (1 - ty) + b * ty;
+  }
+
+  function sampleFluidArray(array, gridX, gridY) {
+    if (!fluid) return 0;
+    return sampleGridArray(array, fluid.cols, fluid.rows, gridX, gridY);
   }
 
   function sampleFluid(x, y) {
@@ -565,8 +681,8 @@
       swimmer.energy = clamp(swimmer.energy + eaten * 1.9 - dt * 0.0035, 0, 1.2);
 
       var localSurface = surfaceY(swimmer.x, time, geometry.line, raft.x);
-      if (swimmer.x > width + 4) swimmer.x = -4;
-      if (swimmer.x < -4) swimmer.x = width + 4;
+      if (screenToWorldX(swimmer.x) > WORLD_WRAP_RIGHT) swimmer.x = worldToScreenX(WORLD_WRAP_LEFT);
+      if (screenToWorldX(swimmer.x) < WORLD_WRAP_LEFT) swimmer.x = worldToScreenX(WORLD_WRAP_RIGHT);
       if (swimmer.y < localSurface + 8) {
         swimmer.y = localSurface + 8;
         swimmer.vy = Math.abs(swimmer.vy);
@@ -656,8 +772,8 @@
         particle.vy = Math.abs(particle.vy) * 0.2;
       }
 
-      if (particle.x > width + 3) particle.x = -3;
-      if (particle.x < -4) particle.x = width + 3;
+      if (screenToWorldX(particle.x) > WORLD_WRAP_RIGHT) particle.x = worldToScreenX(WORLD_WRAP_LEFT);
+      if (screenToWorldX(particle.x) < WORLD_WRAP_LEFT) particle.x = worldToScreenX(WORLD_WRAP_RIGHT);
       if (particle.y > height + 2) respawnParticle(particle, geometry);
     }
 
@@ -668,9 +784,9 @@
   }
 
   function drawPlanet(palette) {
-    var radius = Math.floor(clamp(width * 0.22, 58, 106));
-    var cx = Math.floor(width * 0.22);
-    var cy = Math.floor(height * 0.13);
+    var radius = 94;
+    var cx = Math.floor(worldToScreenX(94));
+    var cy = 31;
     drawPixelDisc(cx, cy, radius, palette.planetDark);
     drawPixelDisc(cx - 4, cy - 4, radius - 7, palette.planet);
     for (var i = 0; i < 24; i += 1) {
@@ -699,16 +815,25 @@
   }
 
   function drawSky(time, palette, line) {
-    var gradient = ctx.createLinearGradient(0, 0, 0, line);
-    gradient.addColorStop(0, palette.sky);
-    gradient.addColorStop(1, palette.skyLow);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, line + 5);
+    pixelRect(0, 0, width, line - 18, palette.sky);
+    pixelRect(0, line - 18, width, 18, palette.skyLow);
+    for (var band = line - 24; band < line - 10; band += 4) {
+      var bandOffset = Math.floor(screenToWorldX(0) / 11) % 2;
+      for (var bandX = -11; bandX < width + 11; bandX += 11) {
+        if ((Math.floor(band / 4) + Math.floor(bandX / 11) + bandOffset) % 2 === 0) {
+          pixelRect(bandX, band, 7, 2, palette.skyLow);
+        }
+      }
+    }
 
-    var starCount = Math.floor(width * line * 0.0055);
-    for (var i = 0; i < starCount; i += 1) {
-      var x = Math.floor(hash(i * 2.7 + width) * width);
-      var y = Math.floor(hash(i * 5.9 + height) * line);
+    var starCell = 2.35;
+    var firstStar = Math.floor(cameraX / starCell) - 1;
+    var lastStar = Math.ceil((cameraX + width) / starCell) + 1;
+    for (var i = firstStar; i <= lastStar; i += 1) {
+      var starWorldX = i * starCell + hash(i * 2.7) * starCell;
+      var x = Math.floor(worldToScreenX(starWorldX));
+      var y = Math.floor(hash(i * 5.9 + 17) * 112);
+      if (y >= line) continue;
       var twinkle = hash(i * 7 + Math.floor(time * 0.8));
       ctx.fillStyle = twinkle > 0.9 ? palette.foam : palette.star;
       ctx.fillRect(x, y, twinkle > 0.97 && mode === "C" ? 2 : 1, 1);
@@ -717,12 +842,19 @@
   }
 
   function drawWater(time, palette, line, raftX) {
-    var gradient = ctx.createLinearGradient(0, line, 0, height);
-    gradient.addColorStop(0, palette.waterTop);
-    gradient.addColorStop(0.35, palette.water);
-    gradient.addColorStop(1, palette.abyss);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, line - 16, width, height - line + 16);
+    pixelRect(0, line - 16, width, 46, palette.waterTop);
+    pixelRect(0, line + 30, width, 58, palette.water);
+    pixelRect(0, line + 88, width, 70, palette.waterDeep);
+    pixelRect(0, line + 158, width, Math.max(1, height - line - 158), palette.abyss);
+    for (var seam = 0; seam < 3; seam += 1) {
+      var seamY = line + 27 + seam * 58;
+      var seamColor = seam === 0 ? palette.water : seam === 1 ? palette.waterDeep : palette.abyss;
+      for (var seamX = -8; seamX < width + 8; seamX += 8) {
+        if ((Math.floor(screenToWorldX(seamX) / 8) + seam) % 2 === 0) {
+          pixelRect(seamX, seamY, 5, 4, seamColor);
+        }
+      }
+    }
 
     ctx.fillStyle = palette.waterTop;
     for (var x = 0; x < width; x += 1) {
@@ -743,18 +875,8 @@
   }
 
   function drawAnchorCable(x1, y1, x2, y2, palette) {
-    ctx.strokeStyle = palette.steelDark;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(x1), Math.floor(y1));
-    ctx.lineTo(Math.floor(x2), Math.floor(y2));
-    ctx.stroke();
-    ctx.strokeStyle = palette.steel;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(x1), Math.floor(y1));
-    ctx.lineTo(Math.floor(x2), Math.floor(y2));
-    ctx.stroke();
+    pixelLine(x1, y1, x2, y2, palette.steelDark, 3);
+    pixelLine(x1, y1, x2, y2, palette.steel, 1);
   }
 
   function createMooring(geometry) {
@@ -870,14 +992,16 @@
 
   function drawMooring(palette) {
     if (!mooring.initialized) return;
-    ctx.strokeStyle = palette.steel;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(mooring.points[0].x), Math.floor(mooring.points[0].y));
     for (var i = 1; i < mooring.points.length; i += 1) {
-      ctx.lineTo(Math.floor(mooring.points[i].x), Math.floor(mooring.points[i].y));
+      pixelLine(
+        mooring.points[i - 1].x,
+        mooring.points[i - 1].y,
+        mooring.points[i].x,
+        mooring.points[i].y,
+        palette.steel,
+        1
+      );
     }
-    ctx.stroke();
     ctx.fillStyle = palette.planetLight;
     ctx.fillRect(Math.floor(mooring.buoyX - 3), Math.floor(mooring.buoyY - 2), 7, 3);
     ctx.fillStyle = palette.steelDark;
@@ -892,22 +1016,22 @@
     drawAnchorCable(
       geometry.left + foundationWidth * 0.2,
       geometry.foundationBottom,
-      Math.max(-25, geometry.left - width * 0.55),
-      height + 30,
+      worldToScreenX(PLATFORM_WORLD_LEFT - 230),
+      geometry.line + 360,
       palette
     );
     drawAnchorCable(
       geometry.left + foundationWidth * 0.62,
       geometry.foundationBottom,
-      geometry.left - width * 0.08,
-      height + 35,
+      worldToScreenX(PLATFORM_WORLD_LEFT - 42),
+      geometry.line + 370,
       palette
     );
     drawAnchorCable(
       geometry.right - 18,
       geometry.foundationBottom,
-      width + Math.max(35, width * 0.4),
-      height + 25,
+      worldToScreenX(PLATFORM_WORLD_LEFT + PLATFORM_WORLD_WIDTH + 230),
+      geometry.line + 350,
       palette
     );
 
@@ -915,44 +1039,57 @@
       var x = Math.floor(geometry.pylons[i]);
       var topX = x + structure.sway;
       var topY = geometry.line - 1 + structure.sag;
-      ctx.strokeStyle = palette.steelDark;
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.moveTo(Math.floor(topX), Math.floor(topY));
-      ctx.lineTo(x, geometry.foundationTop + 4);
-      ctx.stroke();
-      ctx.strokeStyle = palette.steel;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(Math.floor(topX - 1), Math.floor(topY));
-      ctx.lineTo(x - 1, geometry.foundationTop + 4);
-      ctx.stroke();
+      pixelLine(topX, topY, x, geometry.foundationTop + 4, palette.steelDark, 6);
+      pixelLine(topX - 1, topY, x - 1, geometry.foundationTop + 4, palette.steel, 2);
       for (var y = geometry.line + 10; y < geometry.foundationTop; y += 12) {
         var rungAmount = (y - geometry.line) / Math.max(1, geometry.foundationTop - geometry.line);
         var rungX = lerp(topX, x, rungAmount);
-        ctx.fillStyle = palette.timberLight;
-        ctx.fillRect(Math.floor(rungX - 2), y, 6, 1);
+        pixelRect(rungX - 2, y, 6, 1, palette.timberLight);
       }
     }
 
-    ctx.strokeStyle = palette.steelDark;
-    ctx.lineWidth = 2;
     for (var b = 0; b < geometry.pylons.length - 1; b += 1) {
       var bx = geometry.pylons[b];
       var nx = geometry.pylons[b + 1];
-      ctx.beginPath();
-      ctx.moveTo(bx + structure.sway, geometry.line + 7 + structure.sag);
-      ctx.lineTo(nx, geometry.foundationTop - 5);
-      ctx.moveTo(nx + structure.sway, geometry.line + 7 + structure.sag);
-      ctx.lineTo(bx, geometry.foundationTop - 5);
-      ctx.stroke();
+      pixelLine(
+        bx + structure.sway,
+        geometry.line + 7 + structure.sag,
+        nx,
+        geometry.foundationTop - 5,
+        palette.steelDark,
+        2
+      );
+      pixelLine(
+        nx + structure.sway,
+        geometry.line + 7 + structure.sag,
+        bx,
+        geometry.foundationTop - 5,
+        palette.steelDark,
+        2
+      );
     }
 
-    ctx.fillStyle = palette.steelDark;
-    ctx.fillRect(geometry.left - 5, geometry.foundationTop, foundationWidth, 25);
-    ctx.fillStyle = palette.steel;
-    ctx.fillRect(geometry.left - 2, geometry.foundationTop + 3, foundationWidth - 5, 4);
-    ctx.fillRect(geometry.left + 4, geometry.foundationTop + 19, foundationWidth - 13, 3);
+    panelBlock(
+      geometry.left - 5,
+      geometry.foundationTop,
+      foundationWidth,
+      25,
+      palette.steel,
+      palette.timberLight,
+      palette.steelDark,
+      81
+    );
+    moduleSpan(
+      geometry.left - 2,
+      geometry.foundationTop + 3,
+      foundationWidth - 5,
+      4,
+      palette.steel,
+      palette.timberLight,
+      palette.steelDark,
+      91,
+      11
+    );
 
     for (var tank = geometry.left + 8; tank < geometry.right - 8; tank += 18) {
       drawPixelDisc(tank, geometry.foundationTop + 13, 6, palette.steel);
@@ -972,10 +1109,18 @@
     }
 
     var keelTop = geometry.foundationTop + 25;
-    ctx.fillStyle = palette.steelDark;
-    ctx.fillRect(geometry.left + 8, keelTop, foundationWidth - 22, 10);
-    ctx.fillRect(geometry.left + 21, keelTop + 10, foundationWidth - 47, 7);
-    ctx.fillRect(geometry.left + 38, keelTop + 17, foundationWidth - 80, 6);
+    moduleSpan(
+      geometry.left + 8, keelTop, foundationWidth - 22, 10,
+      palette.steel, palette.timberLight, palette.steelDark, 121, 13
+    );
+    moduleSpan(
+      geometry.left + 21, keelTop + 10, foundationWidth - 47, 7,
+      palette.steel, palette.timberLight, palette.steelDark, 131, 11
+    );
+    moduleSpan(
+      geometry.left + 38, keelTop + 17, foundationWidth - 80, 6,
+      palette.steel, palette.timberLight, palette.steelDark, 141, 9
+    );
 
     ctx.globalAlpha = 0.4;
     ctx.fillStyle = palette.bubble;
@@ -1006,13 +1151,15 @@
       height - 25
     );
     consumePlankton(leviathan.x - 30, leviathan.y, dt * 0.009);
-    if (leviathan.x > width + 145) leviathan.x = -145;
+    if (screenToWorldX(leviathan.x) > WORLD_WRAP_RIGHT + 145) {
+      leviathan.x = worldToScreenX(WORLD_WRAP_LEFT - 145);
+    }
   }
 
   function drawLeviathan(time, palette, actors) {
     var x = actors.leviathanX;
     var y = actors.leviathanY;
-    var scale = clamp(width / 520, 0.72, 1.25);
+    var scale = 0.82;
     ctx.globalAlpha = mode === "C" ? 0.72 : 0.55;
     ctx.fillStyle = palette.creature;
     ctx.fillRect(Math.floor(x - 37 * scale), Math.floor(y - 8 * scale), Math.floor(74 * scale), Math.floor(16 * scale));
@@ -1033,8 +1180,8 @@
 
   function drawFloatingKelp(time, palette, line) {
     var beds = [
-      { x: width * 0.08, w: Math.max(25, width * 0.14), depth: 34 },
-      { x: width * 0.46, w: Math.max(18, width * 0.08), depth: 23 }
+      { x: worldToScreenX(34), w: 60, depth: 34 },
+      { x: worldToScreenX(196), w: 35, depth: 23 }
     ];
     for (var b = 0; b < beds.length; b += 1) {
       var bed = beds[b];
@@ -1102,31 +1249,36 @@
     if (storm < 0.18) return;
     ctx.globalAlpha = clamp((storm - 0.12) * 0.45, 0, 0.36);
     ctx.fillStyle = palette.steelDark;
-    for (var cloud = 0; cloud < Math.ceil(width / 34) + 2; cloud += 1) {
-      var cloudX = ((cloud * 37 + time * environment.wind * 2.1) % (width + 48)) - 24;
+    for (var cloud = 0; cloud < 26; cloud += 1) {
+      var cloudWorldX = wrapWorldX(
+        WORLD_WRAP_LEFT + hash(cloud * 17.1) * (WORLD_WRAP_RIGHT - WORLD_WRAP_LEFT) + time * environment.wind * 2.1
+      );
+      var cloudX = worldToScreenX(cloudWorldX);
       var cloudY = 9 + hash(cloud * 11.7) * Math.max(8, line * 0.2);
       var cloudWidth = 22 + Math.floor(hash(cloud * 17.9) * 23);
+      if (cloudX + cloudWidth < 0 || cloudX > width) continue;
       ctx.fillRect(Math.floor(cloudX), Math.floor(cloudY), cloudWidth, 3 + Math.floor(storm * 4));
     }
     ctx.globalAlpha = clamp((storm - 0.28) * 0.5, 0, 0.42);
-    ctx.strokeStyle = palette.bubble;
-    ctx.lineWidth = 1;
-    var rainCount = Math.floor(width * storm * 0.1);
+    var rainCount = Math.floor(82 * storm);
     for (var drop = 0; drop < rainCount; drop += 1) {
       var phase = time * (18 + storm * 16) + drop * 23.7;
-      var rainX = (hash(drop * 7.9) * width + phase * environment.wind * 0.22) % width;
+      var rainWorldX = wrapWorldX(
+        WORLD_WRAP_LEFT + hash(drop * 7.9) * (WORLD_WRAP_RIGHT - WORLD_WRAP_LEFT) + phase * environment.wind * 0.22
+      );
+      var rainX = worldToScreenX(rainWorldX);
+      if (rainX < -4 || rainX > width + 4) continue;
       var rainY = phase % Math.max(1, line + 9);
-      ctx.beginPath();
-      ctx.moveTo(Math.floor(rainX), Math.floor(rainY));
-      ctx.lineTo(Math.floor(rainX - environment.wind), Math.floor(rainY + 3 + storm * 3));
-      ctx.stroke();
+      pixelLine(rainX, rainY, rainX - environment.wind, rainY + 3 + storm * 3, palette.bubble, 1);
     }
     if (storm > 0.82 && hash(Math.floor(time * 1.7) * 13.1) > 0.965) {
       ctx.globalAlpha = 0.3;
       ctx.fillStyle = palette.foam;
-      ctx.fillRect(0, 0, width, line);
+      pixelRect(0, 0, width, line, palette.foam);
       ctx.globalAlpha = 0.92;
-      var boltX = hash(Math.floor(time * 1.7) * 29.3) * width;
+      var boltX = worldToScreenX(
+        WORLD_WRAP_LEFT + hash(Math.floor(time * 1.7) * 29.3) * (WORLD_WRAP_RIGHT - WORLD_WRAP_LEFT)
+      );
       ctx.fillRect(Math.floor(boltX), 18, 1, Math.max(3, Math.floor(line * 0.16)));
       ctx.fillRect(Math.floor(boltX - 2), Math.floor(line * 0.16), 3, 1);
     }
@@ -1135,19 +1287,14 @@
 
   function drawFluidDebug(palette) {
     if (!debugFlow || !fluid) return;
-    ctx.strokeStyle = palette.bubble;
     ctx.globalAlpha = 0.62;
-    ctx.lineWidth = 1;
     for (var row = 1; row < fluid.rows; row += 3) {
       for (var col = 1; col < fluid.cols; col += 3) {
         var index = fluidIndex(col, row);
         if (fluid.solid[index]) continue;
         var x = col * FLUID_CELL;
         var y = fluid.line + row * FLUID_CELL;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + fluid.u[index] * 8, y + fluid.v[index] * 8);
-        ctx.stroke();
+        pixelLine(x, y, x + fluid.u[index] * 8, y + fluid.v[index] * 8, palette.bubble, 1);
       }
     }
     ctx.globalAlpha = 1;
@@ -1197,17 +1344,14 @@
     var deck = geometry.deck;
     var span = right - left;
 
-    ctx.fillStyle = palette.timber;
-    ctx.fillRect(left, deck, span, 8);
-    ctx.fillStyle = palette.timberLight;
-    ctx.fillRect(left - 3, deck - 2, span + 3, 2);
-    ctx.fillRect(left, deck + 7, span, 2);
+    moduleSpan(left, deck, span, 9, palette.timber, palette.timberLight, palette.steelDark, 211, 10);
+    moduleSpan(left - 3, deck - 2, span + 3, 3, palette.timberLight, palette.foam, palette.timber, 223, 8);
 
     var lowerDeck = geometry.line - 12;
-    ctx.fillStyle = palette.timber;
-    ctx.fillRect(left - 8, lowerDeck, Math.floor(span * 0.52), 5);
-    ctx.fillStyle = palette.timberLight;
-    ctx.fillRect(left - 10, lowerDeck - 1, Math.floor(span * 0.52) + 2, 1);
+    moduleSpan(
+      left - 8, lowerDeck, Math.floor(span * 0.52), 5,
+      palette.timber, palette.timberLight, palette.steelDark, 229, 9
+    );
 
     for (var p = 0; p < geometry.pylons.length; p += 1) {
       var px = Math.floor(geometry.pylons[p]);
@@ -1218,12 +1362,25 @@
     }
 
     var blockLeft = left + Math.floor(span * 0.28);
-    ctx.fillStyle = palette.timber;
-    ctx.fillRect(blockLeft, deck - 35, span - (blockLeft - left) - 7, 35);
-    ctx.fillRect(left + Math.floor(span * 0.48), deck - 54, span * 0.31, 20);
-    ctx.fillStyle = palette.timberLight;
-    ctx.fillRect(blockLeft - 2, deck - 37, span - (blockLeft - left) - 3, 3);
-    ctx.fillRect(left + Math.floor(span * 0.48) - 2, deck - 56, span * 0.31 + 4, 3);
+    var mainBlockWidth = Math.floor(span - (blockLeft - left) - 7);
+    var upperBlockLeft = left + Math.floor(span * 0.48);
+    var upperBlockWidth = Math.floor(span * 0.31);
+    panelBlock(
+      blockLeft, deck - 35, mainBlockWidth, 35,
+      palette.timber, palette.timberLight, palette.steelDark, 241
+    );
+    panelBlock(
+      upperBlockLeft, deck - 54, upperBlockWidth, 20,
+      palette.timber, palette.timberLight, palette.steelDark, 251
+    );
+    moduleSpan(
+      blockLeft - 2, deck - 38, mainBlockWidth + 4, 4,
+      palette.timberLight, palette.foam, palette.timber, 257, 9
+    );
+    moduleSpan(
+      upperBlockLeft - 2, deck - 57, upperBlockWidth + 4, 4,
+      palette.timberLight, palette.foam, palette.timber, 263, 9
+    );
 
     for (var floor = 0; floor < 3; floor += 1) {
       var wy = deck - 29 + floor * 10;
@@ -1244,20 +1401,22 @@
     }
 
     var towerX = left + Math.floor(span * 0.62);
-    ctx.fillStyle = palette.steelDark;
-    ctx.fillRect(towerX, deck - 86, 7, 31);
-    ctx.fillRect(towerX - 18, deck - 84, 42, 3);
-    ctx.fillStyle = palette.steel;
-    ctx.fillRect(towerX + 2, deck - 91, 2, 7);
-    ctx.fillRect(towerX - 15, deck - 94, 36, 2);
-    ctx.fillStyle = palette.lamp;
-    ctx.fillRect(towerX + 2, deck - 93, 2, 2);
+    moduleSpan(towerX, deck - 86, 7, 31, palette.steel, palette.timberLight, palette.steelDark, 271, 7);
+    moduleSpan(towerX - 18, deck - 84, 42, 3, palette.steel, palette.timberLight, palette.steelDark, 277, 7);
+    pixelLine(towerX + 3, deck - 91, towerX + 3, deck - 85, palette.steel, 2);
+    moduleSpan(towerX - 15, deck - 94, 36, 3, palette.steel, palette.timberLight, palette.steelDark, 281, 6);
+    pixelRect(towerX + 2, deck - 96, 2, 2, palette.lamp);
 
     var padY = deck - 48;
-    ctx.fillStyle = palette.steelDark;
-    ctx.fillRect(left + 6, padY, Math.floor(span * 0.24), 3);
-    ctx.fillRect(left + 9, padY + 3, 3, deck - padY - 3);
-    ctx.fillRect(left + Math.floor(span * 0.79), deck - 68, Math.floor(span * 0.2), 3);
+    moduleSpan(
+      left + 6, padY, Math.floor(span * 0.24), 3,
+      palette.steel, palette.timberLight, palette.steelDark, 293, 8
+    );
+    pixelLine(left + 10, padY + 3, left + 10, deck - 1, palette.steelDark, 3);
+    moduleSpan(
+      left + Math.floor(span * 0.79), deck - 68, Math.floor(span * 0.2), 3,
+      palette.steel, palette.timberLight, palette.steelDark, 307, 8
+    );
 
     for (var i = 0; i < 38; i += 1) {
       var deckChoice = i % 5 === 0 ? lowerDeck - 2 : i % 4 === 0 ? deck - 38 : deck - 2;
@@ -1303,8 +1462,8 @@
     disturbSurface(raft.x + 27, -raft.vx * dt * 0.38 - raft.vy * dt * 0.22, 8);
     disturbSurface(raft.x + 1, raft.vx * dt * 0.24, 7);
 
-    if (raft.x > width + 62) {
-      raft.x = -58;
+    if (screenToWorldX(raft.x) > WORLD_WRAP_RIGHT + 62) {
+      raft.x = worldToScreenX(WORLD_WRAP_LEFT - 58);
       raft.y = surfaceY(raft.x + 14, time, line, raft.x) - 4;
       raft.vy = 0;
       raft.angle = 0;
@@ -1312,29 +1471,50 @@
   }
 
   function drawRaft(time, palette) {
-    var x = raft.x;
-    var y = raft.y;
+    var centerX = Math.round(raft.x + 14);
+    var centerY = Math.round(raft.y + 2);
+    var steppedAngle = Math.round(clamp(raft.angle, -0.16, 0.16) * 12) / 12;
+    var leftY = centerY - Math.round(steppedAngle * 14);
+    var rightY = centerY + Math.round(steppedAngle * 15);
+    pixelLine(centerX - 14, leftY, centerX + 15, rightY, palette.timberLight, 3);
+    pixelLine(centerX - 11, leftY + 3, centerX + 12, rightY + 3, palette.timber, 2);
+    var mastY = Math.round(lerp(leftY, rightY, 18 / 29));
+    pixelLine(centerX + 4, mastY, centerX + 4, mastY - 11, palette.timber, 1);
+    moduleSpan(centerX + 5, mastY - 11, 7, 5, palette.foam, palette.star, palette.steel, 401, 7);
+    var people = [
+      { offset: -6, phase: time * 1.1, color: palette.foam, facing: 1 },
+      { offset: 2, phase: time * 0.9 + 2, color: palette.kelp, facing: -1 },
+      { offset: 10, phase: time * 1.05 + 4, color: palette.foam, facing: -1 }
+    ];
+    for (var i = 0; i < people.length; i += 1) {
+      var person = people[i];
+      var amount = (person.offset + 14) / 29;
+      drawPerson(
+        centerX + person.offset,
+        Math.round(lerp(leftY, rightY, amount)) - 1,
+        person.phase,
+        person.color,
+        person.facing
+      );
+    }
+  }
 
-    ctx.save();
-    ctx.translate(Math.floor(x + 14), Math.floor(y + 2));
-    ctx.rotate(clamp(raft.angle, -0.16, 0.16));
-    ctx.fillStyle = palette.timberLight;
-    ctx.fillRect(-14, -2, 29, 3);
-    ctx.fillStyle = palette.timber;
-    ctx.fillRect(-11, 1, 23, 2);
-    ctx.fillRect(4, -13, 1, 11);
-    ctx.fillStyle = palette.foam;
-    ctx.fillRect(5, -12, 7, 5);
-    drawPerson(-6, -3, time * 1.1, palette.foam, 1);
-    drawPerson(2, -3, time * 0.9 + 2, palette.kelp, -1);
-    drawPerson(10, -3, time * 1.05 + 4, palette.foam, -1);
-    ctx.restore();
+  function updateCarpet(dt, time, line) {
+    var targetY = line - 52 + Math.sin(time * 0.45) * 5 + environment.wind * 0.7;
+    carpet.vx += (-3.2 - environment.wind * 0.34 - carpet.vx) * dt * 0.8;
+    carpet.vy += (targetY - carpet.y) * dt * 1.8 - carpet.vy * dt * 1.5;
+    carpet.x += carpet.vx * dt;
+    carpet.y += carpet.vy * dt;
+    if (screenToWorldX(carpet.x) < WORLD_WRAP_LEFT - 65) {
+      carpet.x = worldToScreenX(WORLD_WRAP_RIGHT + 65);
+      carpet.y = targetY;
+      carpet.vy = 0;
+    }
   }
 
   function drawCarpet(time, palette, line) {
-    var cycle = width + 150;
-    var x = width - ((time * 3.2) % cycle) + 50;
-    var y = line - 52 + Math.sin(time * 0.45) * 5;
+    var x = carpet.x;
+    var y = carpet.y;
     ctx.fillStyle = palette.planetLight;
     ctx.fillRect(Math.floor(x), Math.floor(y), 20, 2);
     ctx.fillStyle = palette.kelp;
@@ -1349,18 +1529,10 @@
   }
 
   function drawPortal(time, palette, line) {
-    var x = Math.floor(width * 0.12);
-    ctx.strokeStyle = palette.steel;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(x, line + 3, 18, Math.PI, Math.PI * 2);
-    ctx.stroke();
-    ctx.lineWidth = 1;
+    var x = Math.floor(worldToScreenX(51));
+    pixelArc(x, line + 3, 18, Math.PI, Math.PI * 2, palette.steel, 3);
     ctx.globalAlpha = 0.3 + Math.sin(time * 0.3) * 0.08;
-    ctx.strokeStyle = palette.bubble;
-    ctx.beginPath();
-    ctx.arc(x, line + 3, 14, Math.PI, Math.PI * 2);
-    ctx.stroke();
+    pixelArc(x, line + 3, 14, Math.PI, Math.PI * 2, palette.bubble, 1);
     ctx.globalAlpha = 1;
   }
 
@@ -1371,6 +1543,7 @@
     updateSurface(dt, time);
     updateRaft(dt, time, geometry.line);
     updateLeviathan(dt, time, geometry);
+    updateCarpet(dt, time, geometry.line);
     var actors = {
       raftX: raft.x,
       raftY: raft.y,
@@ -1405,21 +1578,130 @@
   }
 
   function resize() {
+    var oldCameraX = cameraX;
+    var oldLine = fluid ? fluid.line : waterlineY();
+    var oldFluid = fluid;
+    var oldSurface = surface;
+    var oldParticles = particles;
+    var oldSwimmers = swimmers;
+    var oldDeposits = deposits;
+    var hadWorld = !!fluid;
+
     width = Math.max(1, Math.ceil(window.innerWidth / ART_PIXEL));
     height = Math.max(1, Math.ceil(window.innerHeight / ART_PIXEL));
+    cameraX = (REFERENCE_WIDTH - width) * 0.5;
+    var xShift = oldCameraX - cameraX;
+    var newLine = waterlineY();
+    var yShift = newLine - oldLine;
     canvas.width = width;
     canvas.height = height;
     canvas.style.width = width * ART_PIXEL + "px";
     canvas.style.height = height * ART_PIXEL + "px";
     ctx.imageSmoothingEnabled = false;
     createSurface();
+    if (oldSurface) {
+      for (var surfaceCol = 0; surfaceCol < surface.cols; surfaceCol += 1) {
+        var newScreenX = surfaceCol * SURFACE_CELL;
+        var oldScreenX = newScreenX + cameraX - oldCameraX;
+        var oldGridX = oldScreenX / SURFACE_CELL;
+        if (oldGridX < 0 || oldGridX > oldSurface.cols - 1) continue;
+        surface.height[surfaceCol] = sampleGridArray(
+          oldSurface.height,
+          oldSurface.cols,
+          1,
+          oldGridX,
+          0
+        );
+        surface.velocity[surfaceCol] = sampleGridArray(
+          oldSurface.velocity,
+          oldSurface.cols,
+          1,
+          oldGridX,
+          0
+        );
+      }
+    }
+
     createFluid(platformGeometry());
+    if (oldFluid) {
+      var fields = ["u", "v", "dye", "nutrient", "plankton"];
+      for (var row = 0; row < fluid.rows; row += 1) {
+        for (var col = 0; col < fluid.cols; col += 1) {
+          var index = fluidIndex(col, row);
+          if (fluid.solid[index]) continue;
+          var oldFluidScreenX = col * FLUID_CELL + cameraX - oldCameraX;
+          var oldFluidGridX = oldFluidScreenX / FLUID_CELL;
+          if (row > oldFluid.rows - 1 || oldFluidGridX < 0 || oldFluidGridX > oldFluid.cols - 1) continue;
+          for (var field = 0; field < fields.length; field += 1) {
+            var fieldName = fields[field];
+            fluid[fieldName][index] = sampleGridArray(
+              oldFluid[fieldName],
+              oldFluid.cols,
+              oldFluid.rows,
+              oldFluidGridX,
+              row
+            );
+          }
+        }
+      }
+    }
+
     createParticles();
+    if (oldParticles && oldParticles.length) {
+      for (var particle = 0; particle < Math.min(particles.length, oldParticles.length); particle += 1) {
+        particles[particle] = oldParticles[particle];
+        particles[particle].x += xShift;
+        particles[particle].y += yShift;
+      }
+    }
     createSwimmers();
+    if (oldSwimmers && oldSwimmers.length) {
+      for (var swimmer = 0; swimmer < Math.min(swimmers.length, oldSwimmers.length); swimmer += 1) {
+        swimmers[swimmer] = oldSwimmers[swimmer];
+        swimmers[swimmer].x += xShift;
+        swimmers[swimmer].y += yShift;
+      }
+    }
     createDeposits();
-    mooring.initialized = false;
-    leviathan.y = Math.floor(height * WATERLINE) + (height - Math.floor(height * WATERLINE)) * 0.69;
-    raft.y = surfaceY(raft.x + 14, 0, Math.floor(height * WATERLINE), raft.x) - 4;
+    if (oldDeposits) {
+      for (var deposit = 0; deposit < deposits.length; deposit += 1) {
+        var oldDepositScreenX = deposit * 2 + cameraX - oldCameraX;
+        var oldDepositGridX = oldDepositScreenX / 2;
+        if (oldDepositGridX < 0 || oldDepositGridX > oldDeposits.length - 1) continue;
+        deposits[deposit] = sampleGridArray(
+          oldDeposits,
+          oldDeposits.length,
+          1,
+          oldDepositGridX,
+          0
+        );
+      }
+    }
+
+    if (hadWorld) {
+      raft.x += xShift;
+      raft.y += yShift;
+      leviathan.x += xShift;
+      leviathan.y += yShift;
+      carpet.x += xShift;
+      carpet.y += yShift;
+      mooring.buoyX += xShift;
+      mooring.buoyY += yShift;
+      for (var point = 0; point < mooring.points.length; point += 1) {
+        mooring.points[point].x += xShift;
+        mooring.points[point].y += yShift;
+        mooring.previous[point].x += xShift;
+        mooring.previous[point].y += yShift;
+      }
+    } else {
+      mooring.initialized = false;
+      leviathan.y = newLine + (height - newLine) * 0.69;
+      raft.y = surfaceY(raft.x + 14, 0, newLine, raft.x) - 4;
+      carpet.y = newLine - 52;
+    }
+    if (window.__mareDebug) {
+      canvas.dataset.worldState = JSON.stringify(window.__mareDebug.snapshot());
+    }
   }
 
   function setMode(nextMode) {
@@ -1450,7 +1732,7 @@
 
   function stirWater(event, firstContact) {
     var position = pointerPosition(event);
-    var line = Math.floor(height * WATERLINE);
+    var line = waterlineY();
     if (position.y < line - 5) {
       pointer.x = position.x;
       pointer.y = position.y;
@@ -1514,6 +1796,34 @@
   });
   window.addEventListener("resize", resize);
   window.addEventListener("pointermove", showInterface, { passive: true });
+
+  window.__mareDebug = {
+    snapshot: function () {
+      var geometry = platformGeometry();
+      var dyeMass = 0;
+      var planktonMass = 0;
+      if (fluid) {
+        for (var i = 0; i < fluid.dye.length; i += 1) {
+          dyeMass += fluid.dye[i];
+          planktonMass += fluid.plankton[i];
+        }
+      }
+      return {
+        viewport: [width, height],
+        cameraX: cameraX,
+        waterline: geometry.line,
+        platformWorldLeft: screenToWorldX(geometry.left),
+        platformWidth: geometry.right - geometry.left,
+        raftWorldX: screenToWorldX(raft.x),
+        leviathanWorldX: screenToWorldX(leviathan.x),
+        particleWorldX: particles.slice(0, 6).map(function (particle) {
+          return screenToWorldX(particle.x);
+        }),
+        dyeMass: dyeMass,
+        planktonMass: planktonMass
+      };
+    }
+  };
 
   resize();
   showInterface();
