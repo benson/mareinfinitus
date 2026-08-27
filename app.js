@@ -4,6 +4,7 @@
   var ART_PIXEL = 3;
   var WATERLINE = 0.36;
   var FLUID_CELL = 6;
+  var SURFACE_CELL = 2;
 
   var PALETTES = {
     A: {
@@ -40,10 +41,34 @@
   var ctx = canvas.getContext("2d", { alpha: false });
   var mode = "B";
   var particles = [];
+  var swimmers = [];
   var ripples = [];
   var fluid = null;
+  var surface = null;
+  var deposits = null;
   var debugFlow = false;
   var raft = { x: -42, y: 0, vx: 1.1, vy: 0, angle: 0, angularVelocity: 0 };
+  var leviathan = { x: -130, y: 0, vx: 0.17, vy: 0 };
+  var environment = {
+    tide: 0,
+    tideVelocity: 0,
+    wind: 0.18,
+    storm: 0.08,
+    stormTarget: 0.08,
+    forcedStorm: 0
+  };
+  var structure = {
+    sway: 0,
+    swayVelocity: 0,
+    sag: 0,
+    sagVelocity: 0,
+    stress: 0,
+    integrity: 1
+  };
+  var mooring = {
+    points: [], previous: [], buoyX: 0, buoyY: 0,
+    buoyVX: 0, buoyVY: 0, segmentLength: 5.5, initialized: false
+  };
   var pointer = { down: false, x: 0, y: 0 };
   var width = 1;
   var height = 1;
@@ -58,6 +83,10 @@
 
   function clamp(value, low, high) {
     return Math.max(low, Math.min(high, value));
+  }
+
+  function lerp(a, b, amount) {
+    return a + (b - a) * amount;
   }
 
   function platformGeometry() {
@@ -89,23 +118,93 @@
     }
   }
 
-  function surfaceY(x, time, line, raftX) {
-    var broad = Math.sin(x * 0.032 + time * 0.42) * 1.6;
-    var swell = Math.sin(x * 0.011 - time * 0.24) * 2.1;
-    var wake = 0;
-    var behind = raftX - x;
-    if (behind > 0 && behind < 55) {
-      wake = Math.sin(behind * 0.72 - time * 2.2) * (1 - behind / 55) * 1.5;
+  function createSurface() {
+    var cols = Math.ceil(width / SURFACE_CELL) + 2;
+    surface = {
+      cols: cols,
+      height: new Float32Array(cols),
+      velocity: new Float32Array(cols),
+      nextVelocity: new Float32Array(cols)
+    };
+    for (var col = 0; col < cols; col += 1) {
+      surface.height[col] = Math.sin(col * 0.085) * 0.8 + Math.sin(col * 0.031 + 1.8) * 0.55;
     }
-    for (var i = 0; i < ripples.length; i += 1) {
-      var ripple = ripples[i];
-      var distance = Math.abs(x - ripple.x);
-      var radius = ripple.age * 8;
-      if (Math.abs(distance - radius) < 5) {
-        wake += Math.sin((distance - radius) * 1.4) * ripple.amp * (1 - ripple.age / 4);
+  }
+
+  function sampleSurface(x) {
+    if (!surface) return 0;
+    var gridX = clamp(x / SURFACE_CELL, 0, surface.cols - 1.001);
+    var left = Math.floor(gridX);
+    var right = Math.min(surface.cols - 1, left + 1);
+    return lerp(surface.height[left], surface.height[right], gridX - left);
+  }
+
+  function surfaceY(x, time, line, raftX) {
+    return line + environment.tide + sampleSurface(x);
+  }
+
+  function disturbSurface(x, impulse, radius) {
+    if (!surface) return;
+    var center = x / SURFACE_CELL;
+    var gridRadius = Math.max(1, radius / SURFACE_CELL);
+    var start = Math.max(1, Math.floor(center - gridRadius));
+    var end = Math.min(surface.cols - 2, Math.ceil(center + gridRadius));
+    for (var col = start; col <= end; col += 1) {
+      var distance = Math.abs(col - center) / gridRadius;
+      if (distance >= 1) continue;
+      surface.velocity[col] += impulse * (0.5 + Math.cos(distance * Math.PI) * 0.5);
+    }
+  }
+
+  function updateEnvironment(dt, time) {
+    var previousTide = environment.tide;
+    environment.tide = Math.sin(time * 0.025) * 3.4 + Math.sin(time * 0.008 + 1.2) * 1.2;
+    environment.tideVelocity = (environment.tide - previousTide) / Math.max(dt, 0.001);
+
+    var weatherEpoch = Math.floor(time / 42);
+    var nextEpoch = weatherEpoch + 1;
+    var phase = (time % 42) / 42;
+    var a = Math.pow(hash(weatherEpoch * 9.17 + 31), 3.4);
+    var b = Math.pow(hash(nextEpoch * 9.17 + 31), 3.4);
+    var weatherBlend = phase * phase * (3 - 2 * phase);
+    var naturalStorm = lerp(a, b, weatherBlend);
+    if (environment.forcedStorm > 0) {
+      environment.forcedStorm = Math.max(0, environment.forcedStorm - dt);
+      naturalStorm = Math.max(naturalStorm, clamp(environment.forcedStorm / 5, 0, 1));
+    }
+    environment.stormTarget = 0.05 + naturalStorm * 0.95;
+    environment.storm += (environment.stormTarget - environment.storm) * (1 - Math.exp(-dt * 0.32));
+    environment.wind = 0.16 + environment.storm * 1.35 + Math.sin(time * 0.06) * 0.08;
+  }
+
+  function updateSurface(dt, time) {
+    if (!surface) return;
+    var storm = environment.storm;
+    for (var col = 1; col < surface.cols - 1; col += 1) {
+      var laplacian = surface.height[col - 1] + surface.height[col + 1] - surface.height[col] * 2;
+      var fluidLift = fluid && col * SURFACE_CELL < width
+        ? sampleFluid(col * SURFACE_CELL, fluid.line + 2).y
+        : 0;
+      var windWave = Math.sin(col * 0.37 + time * (0.7 + storm * 0.8)) * environment.wind * 0.035;
+      surface.nextVelocity[col] = (
+        surface.velocity[col] + (laplacian * 24 + fluidLift * 0.15 + windWave) * dt
+      ) * Math.pow(0.986 - storm * 0.003, dt * 60);
+    }
+    surface.nextVelocity[0] = surface.nextVelocity[1];
+    surface.nextVelocity[surface.cols - 1] = surface.nextVelocity[surface.cols - 2];
+    surface.velocity.set(surface.nextVelocity);
+    for (var x = 0; x < surface.cols; x += 1) {
+      surface.height[x] += surface.velocity[x] * dt;
+      surface.height[x] = clamp(surface.height[x], -7.5, 7.5);
+    }
+
+    if (storm > 0.38) {
+      var rainCount = Math.floor(storm * width * dt * 0.025);
+      for (var drop = 0; drop < rainCount; drop += 1) {
+        var rainX = hash(Math.floor(time * 17) * 97 + drop * 19.1) * width;
+        disturbSurface(rainX, (hash(drop * 41 + time) - 0.5) * storm * 2.2, 5 + storm * 8);
       }
     }
-    return line + broad + swell + wake;
   }
 
   function createParticles() {
@@ -131,6 +230,27 @@
         kind: kind
       });
     }
+  }
+
+  function createSwimmers() {
+    var line = Math.floor(height * WATERLINE);
+    var count = clamp(Math.floor(width / 16), 18, 54);
+    swimmers = [];
+    for (var i = 0; i < count; i += 1) {
+      swimmers.push({
+        x: hash(i * 7.3 + width) * width,
+        y: line + 18 + hash(i * 11.9 + height) * Math.max(20, (height - line) * 0.62),
+        vx: (hash(i * 4.7) - 0.5) * 0.8,
+        vy: (hash(i * 9.1) - 0.5) * 0.3,
+        energy: 0.45 + hash(i * 17.3) * 0.5,
+        seed: hash(i * 23.7 + 3),
+        direction: 1
+      });
+    }
+  }
+
+  function createDeposits() {
+    deposits = new Float32Array(Math.ceil(width / 2) + 1);
   }
 
   function isSolid(x, y, geometry) {
@@ -169,6 +289,10 @@
       divergence: new Float32Array(size),
       dye: new Float32Array(size),
       dye0: new Float32Array(size),
+      nutrient: new Float32Array(size),
+      nutrient0: new Float32Array(size),
+      plankton: new Float32Array(size),
+      plankton0: new Float32Array(size),
       solid: new Uint8Array(size)
     };
     for (var row = 0; row < rows; row += 1) {
@@ -177,6 +301,9 @@
         var worldX = col * FLUID_CELL;
         var worldY = geometry.line + row * FLUID_CELL;
         fluid.u[index] = 0.3;
+        var depth = row / Math.max(1, rows - 1);
+        fluid.nutrient[index] = 0.24 + depth * 0.58 + hash(col * 3.1 + row * 7.7) * 0.08;
+        fluid.plankton[index] = (1 - depth * 0.7) * (0.08 + hash(col * 5.3 + row * 11.9) * 0.12);
         fluid.solid[index] = isSolid(worldX, worldY, geometry) ? 1 : 0;
       }
     }
@@ -198,14 +325,27 @@
   }
 
   function sampleFluid(x, y) {
-    if (!fluid || y < fluid.line) return { x: 0.3, y: 0, dye: 0 };
+    if (!fluid || y < fluid.line) return { x: 0.3, y: 0, dye: 0, nutrient: 0, plankton: 0 };
     var gridX = x / FLUID_CELL;
     var gridY = (y - fluid.line) / FLUID_CELL;
     return {
       x: sampleFluidArray(fluid.u, gridX, gridY),
       y: sampleFluidArray(fluid.v, gridX, gridY),
-      dye: sampleFluidArray(fluid.dye, gridX, gridY)
+      dye: sampleFluidArray(fluid.dye, gridX, gridY),
+      nutrient: sampleFluidArray(fluid.nutrient, gridX, gridY),
+      plankton: sampleFluidArray(fluid.plankton, gridX, gridY)
     };
+  }
+
+  function consumePlankton(x, y, amount) {
+    if (!fluid || y < fluid.line) return 0;
+    var col = clamp(Math.round(x / FLUID_CELL), 0, fluid.cols - 1);
+    var row = clamp(Math.round((y - fluid.line) / FLUID_CELL), 0, fluid.rows - 1);
+    var index = fluidIndex(col, row);
+    var eaten = Math.min(fluid.plankton[index], amount);
+    fluid.plankton[index] -= eaten;
+    fluid.nutrient[index] = clamp(fluid.nutrient[index] + eaten * 0.22, 0, 1.5);
+    return eaten;
   }
 
   function injectFluid(x, y, forceX, forceY, radius, dyeAmount) {
@@ -285,6 +425,8 @@
     fluid.u0.set(fluid.u);
     fluid.v0.set(fluid.v);
     fluid.dye0.set(fluid.dye);
+    fluid.nutrient0.set(fluid.nutrient);
+    fluid.plankton0.set(fluid.plankton);
 
     for (var row = 0; row < fluid.rows; row += 1) {
       for (var col = 0; col < fluid.cols; col += 1) {
@@ -293,23 +435,34 @@
           fluid.u[index] = 0;
           fluid.v[index] = 0;
           fluid.dye[index] *= 0.92;
+          fluid.plankton[index] *= 0.995;
           continue;
         }
         var backX = col - fluid.u0[index] * dt / FLUID_CELL;
         var backY = row - fluid.v0[index] * dt / FLUID_CELL;
         var depth = row / Math.max(1, fluid.rows - 1);
-        var targetCurrent = 0.28 + Math.sin(row * 0.21 + time * 0.08) * 0.06 * (1 - depth);
+        var tidalCurrent = Math.cos(time * 0.025) * 0.18;
+        var targetCurrent = 0.26 + tidalCurrent + Math.sin(row * 0.21 + time * 0.08) * 0.06 * (1 - depth);
         fluid.u[index] = sampleFluidArray(fluid.u0, backX, backY) * 0.997 + targetCurrent * 0.003;
-        fluid.v[index] = sampleFluidArray(fluid.v0, backX, backY) * 0.994;
+        fluid.v[index] = sampleFluidArray(fluid.v0, backX, backY) * (0.994 - environment.storm * 0.001);
         fluid.dye[index] = sampleFluidArray(fluid.dye0, backX, backY) * 0.986;
+        var nutrient = sampleFluidArray(fluid.nutrient0, backX, backY);
+        var plankton = sampleFluidArray(fluid.plankton0, backX, backY);
+        var light = Math.max(0, 1 - depth * 1.28);
+        var growth = plankton * nutrient * light * (0.34 + environment.storm * 0.08) * dt;
+        var respiration = plankton * (0.024 + depth * 0.018) * dt;
+        fluid.plankton[index] = clamp(plankton + growth - respiration, 0, 1.35);
+        fluid.nutrient[index] = clamp(nutrient - growth * 0.72 + respiration * 0.38 + depth * 0.002 * dt, 0, 1.45);
+        if (depth > 0.78) fluid.nutrient[index] += (0.82 - fluid.nutrient[index]) * dt * 0.012;
       }
     }
 
     for (var top = 0; top < fluid.cols; top += 1) {
       var topIndex = fluidIndex(top, 0);
       if (!fluid.solid[topIndex]) {
-        fluid.u[topIndex] += Math.sin(top * 0.31 + time * 0.35) * 0.008;
-        fluid.v[topIndex] += Math.sin(top * 0.18 - time * 0.42) * 0.006;
+        var surfaceCol = clamp(Math.floor(top * FLUID_CELL / SURFACE_CELL), 0, surface.cols - 1);
+        fluid.u[topIndex] += Math.sin(top * 0.31 + time * 0.35) * 0.008 + environment.wind * 0.004;
+        fluid.v[topIndex] += surface.velocity[surfaceCol] * 0.018 + environment.tideVelocity * 0.006;
       }
     }
 
@@ -319,6 +472,22 @@
     }
     injectFluid(actors.raftX - 12, geometry.line + 5, actors.raftVX * 0.08, actors.raftVY * 0.08, 22, 0.045);
     injectFluid(actors.leviathanX - 28, actors.leviathanY, 0.04, Math.sin(time * 0.16) * 0.035, 46, 0.018);
+    if (environment.storm > 0.28) {
+      injectFluid(
+        hash(Math.floor(time * 2.2)) * width,
+        geometry.line + 12,
+        environment.wind * 0.08,
+        (hash(Math.floor(time * 3.7) + 4) - 0.5) * environment.storm * 0.18,
+        38,
+        environment.storm * 0.006
+      );
+    }
+    var leviathanCell = sampleFluid(actors.leviathanX, actors.leviathanY);
+    if (leviathanCell.nutrient < 1.1) {
+      var lcol = clamp(Math.round(actors.leviathanX / FLUID_CELL), 0, fluid.cols - 1);
+      var lrow = clamp(Math.round((actors.leviathanY - fluid.line) / FLUID_CELL), 0, fluid.rows - 1);
+      fluid.nutrient[fluidIndex(lcol, lrow)] = clamp(fluid.nutrient[fluidIndex(lcol, lrow)] + dt * 0.08, 0, 1.3);
+    }
     projectFluid();
   }
 
@@ -327,6 +496,87 @@
     flow.x += Math.sin(y * 0.025 + time * 0.12) * 0.025;
     flow.y += Math.sin(x * 0.018 - time * 0.14) * 0.018;
     return flow;
+  }
+
+  function depositSediment(x, amount) {
+    if (!deposits) return;
+    var index = clamp(Math.floor(x / 2), 0, deposits.length - 1);
+    deposits[index] = clamp(deposits[index] + amount, 0, 5.5);
+  }
+
+  function updateSediment(dt, geometry) {
+    if (!fluid || !deposits) return;
+    var start = Math.max(0, Math.floor((geometry.left - 6) / 2));
+    var end = Math.min(deposits.length - 1, Math.ceil(geometry.right / 2));
+    for (var slot = start; slot <= end; slot += 1) {
+      var x = slot * 2;
+      var sampleY = geometry.foundationTop - 4;
+      var flow = sampleFluid(x, sampleY);
+      var speed = Math.sqrt(flow.x * flow.x + flow.y * flow.y);
+      var fluidCol = clamp(Math.round(x / FLUID_CELL), 0, fluid.cols - 1);
+      var fluidRow = clamp(Math.round((sampleY - fluid.line) / FLUID_CELL), 0, fluid.rows - 1);
+      var index = fluidIndex(fluidCol, fluidRow);
+      var deposition = fluid.dye[index] * Math.max(0, 0.58 - speed) * dt * 0.065;
+      var erosion = deposits[slot] * Math.max(0, speed + environment.storm * 0.24 - 0.54) * dt * 0.024;
+      deposits[slot] = clamp(deposits[slot] + deposition - erosion, 0, 5.5);
+      fluid.dye[index] = clamp(fluid.dye[index] - deposition * 0.45 + erosion * 0.8, 0, 1.5);
+    }
+  }
+
+  function updateSwimmers(dt, time, geometry, actors) {
+    for (var i = 0; i < swimmers.length; i += 1) {
+      var swimmer = swimmers[i];
+      var sense = 13;
+      var leftFood = sampleFluid(swimmer.x - sense, swimmer.y).plankton;
+      var rightFood = sampleFluid(swimmer.x + sense, swimmer.y).plankton;
+      var upFood = sampleFluid(swimmer.x, swimmer.y - sense).plankton;
+      var downFood = sampleFluid(swimmer.x, swimmer.y + sense).plankton;
+      var flow = sampleFluid(swimmer.x, swimmer.y);
+      var desiredX = (rightFood - leftFood) * 1.7 + (swimmer.seed - 0.48) * 0.12;
+      var desiredY = (downFood - upFood) * 1.45 + Math.sin(time * 0.2 + swimmer.seed * 19) * 0.035;
+
+      var predatorX = swimmer.x - actors.leviathanX;
+      var predatorY = swimmer.y - actors.leviathanY;
+      var predatorDistance2 = predatorX * predatorX + predatorY * predatorY;
+      if (predatorDistance2 < 90 * 90 && predatorDistance2 > 1) {
+        var fear = (1 - Math.sqrt(predatorDistance2) / 90) * 2.4;
+        desiredX += predatorX / Math.sqrt(predatorDistance2) * fear;
+        desiredY += predatorY / Math.sqrt(predatorDistance2) * fear;
+      }
+
+      swimmer.vx += (flow.x * 0.48 + desiredX - swimmer.vx) * dt * 1.7;
+      swimmer.vy += (flow.y * 0.48 + desiredY - swimmer.vy) * dt * 1.7;
+      var speed = Math.sqrt(swimmer.vx * swimmer.vx + swimmer.vy * swimmer.vy);
+      if (speed > 1.45) {
+        swimmer.vx *= 1.45 / speed;
+        swimmer.vy *= 1.45 / speed;
+      }
+      var nextX = swimmer.x + swimmer.vx * dt * 7;
+      var nextY = swimmer.y + swimmer.vy * dt * 7;
+      if (isSolid(nextX, nextY, geometry)) {
+        swimmer.vx *= -0.8;
+        swimmer.vy *= -0.8;
+      } else {
+        swimmer.x = nextX;
+        swimmer.y = nextY;
+      }
+      swimmer.direction = swimmer.vx >= 0 ? 1 : -1;
+      var eaten = consumePlankton(swimmer.x, swimmer.y, dt * 0.016);
+      swimmer.energy = clamp(swimmer.energy + eaten * 1.9 - dt * 0.0035, 0, 1.2);
+
+      var localSurface = surfaceY(swimmer.x, time, geometry.line, raft.x);
+      if (swimmer.x > width + 4) swimmer.x = -4;
+      if (swimmer.x < -4) swimmer.x = width + 4;
+      if (swimmer.y < localSurface + 8) {
+        swimmer.y = localSurface + 8;
+        swimmer.vy = Math.abs(swimmer.vy);
+      }
+      if (swimmer.y > height - 5 || swimmer.energy <= 0.005) {
+        swimmer.x = hash(swimmer.seed * 41 + time) * width;
+        swimmer.y = geometry.line + 18 + hash(swimmer.seed * 67 + time) * Math.max(20, (height - geometry.line) * 0.6);
+        swimmer.energy = 0.45;
+      }
+    }
   }
 
   function respawnParticle(particle, geometry) {
@@ -363,6 +613,16 @@
       var nextX = particle.x + particle.vx * dt;
       var nextY = particle.y + particle.vy * dt;
       if (isSolid(nextX, nextY, geometry)) {
+        if (
+          particle.kind === "silt" &&
+          nextY >= geometry.foundationTop - 5 &&
+          nextX >= geometry.left - 6 &&
+          nextX <= geometry.right
+        ) {
+          depositSediment(nextX, 0.055);
+          respawnParticle(particle, geometry);
+          continue;
+        }
         var canSlideY = !isSolid(particle.x, nextY, geometry);
         var canSlideX = !isSolid(nextX, particle.y, geometry);
         if (canSlideY) {
@@ -387,6 +647,7 @@
       if (particle.kind === "bubble" && particle.y <= localSurface + 2) {
         if (ripples.length < 18 && particle.seed > 0.68) {
           ripples.push({ x: particle.x, age: 0, amp: 0.55 + particle.seed * 0.55 });
+          disturbSurface(particle.x, -0.34 - particle.seed * 0.24, 7);
         }
         particle.y = height - 5 - hash(particle.seed + time) * Math.max(12, height * 0.22);
         particle.x = hash(particle.seed * 97 + time) * width;
@@ -461,12 +722,12 @@
     gradient.addColorStop(0.35, palette.water);
     gradient.addColorStop(1, palette.abyss);
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, line - 4, width, height - line + 4);
+    ctx.fillRect(0, line - 16, width, height - line + 16);
 
     ctx.fillStyle = palette.waterTop;
     for (var x = 0; x < width; x += 1) {
       var top = Math.floor(surfaceY(x, time, line, raftX));
-      ctx.fillRect(x, top, 1, Math.max(1, line + 4 - top));
+      ctx.fillRect(x, top, 1, Math.max(1, line + 16 - top));
     }
 
     ctx.globalAlpha = 0.32;
@@ -496,6 +757,135 @@
     ctx.stroke();
   }
 
+  function createMooring(geometry) {
+    var count = 14;
+    var anchorX = geometry.left - 3;
+    var anchorY = geometry.foundationTop + 8;
+    mooring.buoyX = geometry.left - 48;
+    mooring.buoyY = surfaceY(mooring.buoyX, 0, geometry.line, raft.x) - 2;
+    mooring.buoyVX = 0;
+    mooring.buoyVY = 0;
+    mooring.points = [];
+    mooring.previous = [];
+    for (var i = 0; i < count; i += 1) {
+      var amount = i / (count - 1);
+      var point = {
+        x: lerp(anchorX, mooring.buoyX, amount),
+        y: lerp(anchorY, mooring.buoyY, amount) + Math.sin(amount * Math.PI) * 8
+      };
+      mooring.points.push(point);
+      mooring.previous.push({ x: point.x, y: point.y });
+    }
+    mooring.segmentLength = Math.sqrt(
+      Math.pow(anchorX - mooring.buoyX, 2) + Math.pow(anchorY - mooring.buoyY, 2)
+    ) / (count - 1) * 1.12;
+    mooring.initialized = true;
+  }
+
+  function updateStructure(dt, geometry) {
+    var currentForce = 0;
+    for (var i = 0; i < geometry.pylons.length; i += 2) {
+      currentForce += sampleFluid(geometry.pylons[i], geometry.line + 38).x - 0.25;
+    }
+    currentForce /= Math.max(1, Math.ceil(geometry.pylons.length / 2));
+    var waveDifference = sampleSurface(geometry.left) - sampleSurface(Math.min(width - 1, geometry.right - 5));
+    var windLoad = environment.wind * environment.storm * 0.72;
+    var force = currentForce * 0.8 + waveDifference * 0.025 + windLoad;
+    structure.swayVelocity += (force - structure.sway * 0.92 - structure.swayVelocity * 1.7) * dt;
+    structure.sway = clamp(structure.sway + structure.swayVelocity * dt, -3.2, 3.2);
+
+    var occupancyLoad = 0.22 + Math.sin(performance.now() * 0.00007) * 0.03;
+    var targetSag = 0.35 + occupancyLoad + environment.storm * 0.8 + (1 - structure.integrity) * 1.8;
+    structure.sagVelocity += (targetSag - structure.sag) * dt * 1.2 - structure.sagVelocity * dt * 1.6;
+    structure.sag = clamp(structure.sag + structure.sagVelocity * dt, 0, 2.8);
+    structure.stress = clamp(
+      Math.abs(structure.sway) / 3.2 + environment.storm * 0.42 + Math.abs(structure.sagVelocity) * 0.3,
+      0,
+      1.4
+    );
+    if (structure.stress > 0.82) {
+      structure.integrity = Math.max(0.72, structure.integrity - (structure.stress - 0.82) * dt * 0.0008);
+    } else if (environment.storm < 0.3) {
+      structure.integrity = Math.min(1, structure.integrity + dt * 0.00022);
+    }
+  }
+
+  function updateMooring(dt, time, geometry) {
+    if (!mooring.initialized || mooring.points.length < 2) createMooring(geometry);
+    var anchorX = geometry.left - 3;
+    var anchorY = geometry.foundationTop + 8;
+    var buoySurface = surfaceY(mooring.buoyX, time, geometry.line, raft.x) - 2;
+    var buoyFlow = sampleFluid(mooring.buoyX, geometry.line + 6);
+    mooring.buoyVX += (buoyFlow.x * 0.9 + environment.wind * 0.08 - mooring.buoyVX) * dt * 0.9;
+    mooring.buoyVY += ((buoySurface - mooring.buoyY) * 5 - mooring.buoyVY * 3.1) * dt;
+    mooring.buoyX += mooring.buoyVX * dt;
+    mooring.buoyY += mooring.buoyVY * dt;
+
+    var maxReach = mooring.segmentLength * (mooring.points.length - 1) * 0.96;
+    var ropeDX = mooring.buoyX - anchorX;
+    var ropeDY = mooring.buoyY - anchorY;
+    var ropeDistance = Math.sqrt(ropeDX * ropeDX + ropeDY * ropeDY);
+    if (ropeDistance > maxReach) {
+      var tension = ropeDistance - maxReach;
+      mooring.buoyVX -= ropeDX / ropeDistance * tension * dt * 3.5;
+      mooring.buoyVY -= ropeDY / ropeDistance * tension * dt * 3.5;
+    }
+
+    for (var i = 1; i < mooring.points.length - 1; i += 1) {
+      var point = mooring.points[i];
+      var previous = mooring.previous[i];
+      var velocityX = (point.x - previous.x) * 0.992;
+      var velocityY = (point.y - previous.y) * 0.992;
+      previous.x = point.x;
+      previous.y = point.y;
+      var flow = sampleFluid(point.x, point.y);
+      point.x += velocityX + flow.x * dt * 0.18;
+      point.y += velocityY + (0.08 + flow.y * 0.1) * dt;
+    }
+
+    for (var iteration = 0; iteration < 6; iteration += 1) {
+      mooring.points[0].x = anchorX;
+      mooring.points[0].y = anchorY;
+      var last = mooring.points.length - 1;
+      mooring.points[last].x = mooring.buoyX;
+      mooring.points[last].y = mooring.buoyY;
+      for (var segment = 0; segment < last; segment += 1) {
+        var a = mooring.points[segment];
+        var b = mooring.points[segment + 1];
+        var dx = b.x - a.x;
+        var dy = b.y - a.y;
+        var distance = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
+        var correction = (distance - mooring.segmentLength) / distance * 0.5;
+        if (segment > 0) {
+          a.x += dx * correction;
+          a.y += dy * correction;
+        }
+        if (segment + 1 < last) {
+          b.x -= dx * correction;
+          b.y -= dy * correction;
+        }
+      }
+    }
+  }
+
+  function drawMooring(palette) {
+    if (!mooring.initialized) return;
+    ctx.strokeStyle = palette.steel;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(mooring.points[0].x), Math.floor(mooring.points[0].y));
+    for (var i = 1; i < mooring.points.length; i += 1) {
+      ctx.lineTo(Math.floor(mooring.points[i].x), Math.floor(mooring.points[i].y));
+    }
+    ctx.stroke();
+    ctx.fillStyle = palette.planetLight;
+    ctx.fillRect(Math.floor(mooring.buoyX - 3), Math.floor(mooring.buoyY - 2), 7, 3);
+    ctx.fillStyle = palette.steelDark;
+    ctx.fillRect(Math.floor(mooring.buoyX), Math.floor(mooring.buoyY - 6), 1, 4);
+    ctx.fillStyle = palette.lamp;
+    ctx.fillRect(Math.floor(mooring.buoyX), Math.floor(mooring.buoyY - 7), 1, 1);
+  }
+
   function drawSubstructure(time, palette, geometry) {
     var foundationWidth = geometry.right - geometry.left + 7;
 
@@ -523,13 +913,25 @@
 
     for (var i = 0; i < geometry.pylons.length; i += 1) {
       var x = Math.floor(geometry.pylons[i]);
-      ctx.fillStyle = palette.steelDark;
-      ctx.fillRect(x - 2, geometry.line - 1, 6, geometry.foundationTop - geometry.line + 6);
-      ctx.fillStyle = palette.steel;
-      ctx.fillRect(x - 1, geometry.line, 2, geometry.foundationTop - geometry.line + 4);
+      var topX = x + structure.sway;
+      var topY = geometry.line - 1 + structure.sag;
+      ctx.strokeStyle = palette.steelDark;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(Math.floor(topX), Math.floor(topY));
+      ctx.lineTo(x, geometry.foundationTop + 4);
+      ctx.stroke();
+      ctx.strokeStyle = palette.steel;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.floor(topX - 1), Math.floor(topY));
+      ctx.lineTo(x - 1, geometry.foundationTop + 4);
+      ctx.stroke();
       for (var y = geometry.line + 10; y < geometry.foundationTop; y += 12) {
+        var rungAmount = (y - geometry.line) / Math.max(1, geometry.foundationTop - geometry.line);
+        var rungX = lerp(topX, x, rungAmount);
         ctx.fillStyle = palette.timberLight;
-        ctx.fillRect(x - 2, y, 6, 1);
+        ctx.fillRect(Math.floor(rungX - 2), y, 6, 1);
       }
     }
 
@@ -539,9 +941,9 @@
       var bx = geometry.pylons[b];
       var nx = geometry.pylons[b + 1];
       ctx.beginPath();
-      ctx.moveTo(bx, geometry.line + 7);
+      ctx.moveTo(bx + structure.sway, geometry.line + 7 + structure.sag);
       ctx.lineTo(nx, geometry.foundationTop - 5);
-      ctx.moveTo(nx, geometry.line + 7);
+      ctx.moveTo(nx + structure.sway, geometry.line + 7 + structure.sag);
       ctx.lineTo(bx, geometry.foundationTop - 5);
       ctx.stroke();
     }
@@ -557,6 +959,18 @@
       drawPixelDisc(tank - 1, geometry.foundationTop + 12, 4, palette.steelDark);
     }
 
+    if (deposits) {
+      ctx.fillStyle = palette.timberLight;
+      ctx.globalAlpha = 0.72;
+      var depositStart = Math.max(0, Math.floor((geometry.left - 5) / 2));
+      var depositEnd = Math.min(deposits.length - 1, Math.ceil(geometry.right / 2));
+      for (var deposit = depositStart; deposit <= depositEnd; deposit += 1) {
+        var mound = Math.floor(deposits[deposit]);
+        if (mound > 0) ctx.fillRect(deposit * 2, geometry.foundationTop - mound, 2, mound);
+      }
+      ctx.globalAlpha = 1;
+    }
+
     var keelTop = geometry.foundationTop + 25;
     ctx.fillStyle = palette.steelDark;
     ctx.fillRect(geometry.left + 8, keelTop, foundationWidth - 22, 10);
@@ -570,6 +984,29 @@
       ctx.fillRect(Math.floor(geometry.pylons[j] + 5), py, 1, 1);
     }
     ctx.globalAlpha = 1;
+  }
+
+  function updateLeviathan(dt, time, geometry) {
+    if (!leviathan.y) leviathan.y = geometry.line + (height - geometry.line) * 0.69;
+    var sense = 48;
+    var foodLeft = sampleFluid(leviathan.x - sense, leviathan.y).plankton;
+    var foodRight = sampleFluid(leviathan.x + sense, leviathan.y).plankton;
+    var foodUp = sampleFluid(leviathan.x, leviathan.y - sense).plankton;
+    var foodDown = sampleFluid(leviathan.x, leviathan.y + sense).plankton;
+    var localFlow = sampleFluid(leviathan.x, leviathan.y);
+    var targetVX = 0.16 + localFlow.x * 0.12 + (foodRight - foodLeft) * 0.05;
+    var targetVY = (foodDown - foodUp) * 0.07 + Math.sin(time * 0.08) * 0.035 + localFlow.y * 0.08;
+    leviathan.vx += (targetVX - leviathan.vx) * dt * 0.2;
+    leviathan.vy += (targetVY - leviathan.vy) * dt * 0.25;
+    leviathan.x += leviathan.vx * dt;
+    leviathan.y += leviathan.vy * dt;
+    leviathan.y = clamp(
+      leviathan.y,
+      geometry.line + Math.max(34, (height - geometry.line) * 0.34),
+      height - 25
+    );
+    consumePlankton(leviathan.x - 30, leviathan.y, dt * 0.009);
+    if (leviathan.x > width + 145) leviathan.x = -145;
   }
 
   function drawLeviathan(time, palette, actors) {
@@ -620,20 +1057,78 @@
       for (var col = 0; col < fluid.cols; col += 1) {
         var index = fluidIndex(col, row);
         var dye = fluid.dye[index];
-        if (dye < 0.035 || fluid.solid[index]) continue;
+        var plankton = fluid.plankton[index];
+        if (fluid.solid[index]) continue;
         var x = col * FLUID_CELL;
         var y = fluid.line + row * FLUID_CELL;
         var velocityX = fluid.u[index];
         var velocityY = fluid.v[index];
-        ctx.globalAlpha = clamp(dye * 0.42, 0.05, 0.42);
-        ctx.fillStyle = velocityY < -0.08 ? palette.bubble : palette.plankton;
-        ctx.fillRect(
-          Math.floor(x),
-          Math.floor(y),
-          Math.max(1, Math.floor(1 + Math.abs(velocityX) * 2.4)),
-          Math.max(1, Math.floor(1 + Math.abs(velocityY) * 1.6))
-        );
+        if (dye >= 0.035) {
+          ctx.globalAlpha = clamp(dye * 0.42, 0.05, 0.42);
+          ctx.fillStyle = velocityY < -0.08 ? palette.bubble : palette.timberLight;
+          ctx.fillRect(
+            Math.floor(x),
+            Math.floor(y),
+            Math.max(1, Math.floor(1 + Math.abs(velocityX) * 2.4)),
+            Math.max(1, Math.floor(1 + Math.abs(velocityY) * 1.6))
+          );
+        }
+        if (plankton > 0.12 && hash(col * 19.1 + row * 31.7) < plankton * 0.72) {
+          ctx.globalAlpha = clamp(0.08 + plankton * (mode === "C" ? 0.48 : 0.32), 0.08, 0.62);
+          ctx.fillStyle = plankton > 0.52 ? palette.lamp : palette.plankton;
+          ctx.fillRect(Math.floor(x + hash(index * 3.9) * 4), Math.floor(y + hash(index * 7.1) * 4), 1, 1);
+        }
       }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawSwimmers(palette) {
+    ctx.globalAlpha = mode === "A" ? 0.58 : 0.78;
+    for (var i = 0; i < swimmers.length; i += 1) {
+      var swimmer = swimmers[i];
+      var x = Math.floor(swimmer.x);
+      var y = Math.floor(swimmer.y);
+      var facing = swimmer.direction;
+      ctx.fillStyle = swimmer.energy > 0.7 ? palette.bubble : palette.plankton;
+      ctx.fillRect(x - (facing < 0 ? 2 : 0), y, 3, 1);
+      ctx.fillRect(x - facing * 2, y + (i % 2 ? 1 : -1), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawWeather(time, palette, line) {
+    var storm = environment.storm;
+    if (storm < 0.18) return;
+    ctx.globalAlpha = clamp((storm - 0.12) * 0.45, 0, 0.36);
+    ctx.fillStyle = palette.steelDark;
+    for (var cloud = 0; cloud < Math.ceil(width / 34) + 2; cloud += 1) {
+      var cloudX = ((cloud * 37 + time * environment.wind * 2.1) % (width + 48)) - 24;
+      var cloudY = 9 + hash(cloud * 11.7) * Math.max(8, line * 0.2);
+      var cloudWidth = 22 + Math.floor(hash(cloud * 17.9) * 23);
+      ctx.fillRect(Math.floor(cloudX), Math.floor(cloudY), cloudWidth, 3 + Math.floor(storm * 4));
+    }
+    ctx.globalAlpha = clamp((storm - 0.28) * 0.5, 0, 0.42);
+    ctx.strokeStyle = palette.bubble;
+    ctx.lineWidth = 1;
+    var rainCount = Math.floor(width * storm * 0.1);
+    for (var drop = 0; drop < rainCount; drop += 1) {
+      var phase = time * (18 + storm * 16) + drop * 23.7;
+      var rainX = (hash(drop * 7.9) * width + phase * environment.wind * 0.22) % width;
+      var rainY = phase % Math.max(1, line + 9);
+      ctx.beginPath();
+      ctx.moveTo(Math.floor(rainX), Math.floor(rainY));
+      ctx.lineTo(Math.floor(rainX - environment.wind), Math.floor(rainY + 3 + storm * 3));
+      ctx.stroke();
+    }
+    if (storm > 0.82 && hash(Math.floor(time * 1.7) * 13.1) > 0.965) {
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = palette.foam;
+      ctx.fillRect(0, 0, width, line);
+      ctx.globalAlpha = 0.92;
+      var boltX = hash(Math.floor(time * 1.7) * 29.3) * width;
+      ctx.fillRect(Math.floor(boltX), 18, 1, Math.max(3, Math.floor(line * 0.16)));
+      ctx.fillRect(Math.floor(boltX - 2), Math.floor(line * 0.16), 3, 1);
     }
     ctx.globalAlpha = 1;
   }
@@ -695,6 +1190,8 @@
   }
 
   function drawPlatform(time, palette, geometry) {
+    ctx.save();
+    ctx.translate(Math.round(structure.sway), Math.round(structure.sag));
     var left = geometry.left;
     var right = geometry.right;
     var deck = geometry.deck;
@@ -732,6 +1229,10 @@
       var wy = deck - 29 + floor * 10;
       for (var wx = blockLeft + 7; wx < right - 10; wx += 13) {
         var lit = hash(wx * 0.13 + floor * 9 + Math.floor(time / 8)) > 0.23;
+        if (
+          structure.stress > 0.72 &&
+          hash(wx * 0.37 + floor * 13 + Math.floor(time * 5)) < (structure.stress - 0.72) * 0.46
+        ) lit = false;
         ctx.fillStyle = lit ? palette.lamp : palette.steelDark;
         ctx.fillRect(Math.floor(wx), wy, 5, 4);
         if (lit && mode === "C") {
@@ -772,6 +1273,12 @@
         i % 2 ? 1 : -1
       );
     }
+    if (structure.integrity < 0.985) {
+      drawPerson(left + span * 0.58, deck - 2, time * 2.1, palette.lamp, -1);
+      ctx.fillStyle = palette.lamp;
+      ctx.fillRect(Math.floor(left + span * 0.58 + 4), deck - 1, 2, 1);
+    }
+    ctx.restore();
   }
 
   function updateRaft(dt, time, line) {
@@ -793,6 +1300,8 @@
     var angleForce = (slope - raft.angle) * 3.2 - raft.angularVelocity * 2.5;
     raft.angularVelocity += angleForce * dt;
     raft.angle += raft.angularVelocity * dt;
+    disturbSurface(raft.x + 27, -raft.vx * dt * 0.38 - raft.vy * dt * 0.22, 8);
+    disturbSurface(raft.x + 1, raft.vx * dt * 0.24, 7);
 
     if (raft.x > width + 62) {
       raft.x = -58;
@@ -858,30 +1367,37 @@
   function drawWorld(time, dt) {
     var palette = PALETTES[mode];
     var geometry = platformGeometry();
+    updateEnvironment(dt, time);
+    updateSurface(dt, time);
     updateRaft(dt, time, geometry.line);
-    var leviathanCycle = width + 260;
-    var leviathanX = ((time * 0.17) % leviathanCycle) - 130;
-    var leviathanY = geometry.line + (height - geometry.line) * 0.69 + Math.sin(time * 0.08) * 12;
+    updateLeviathan(dt, time, geometry);
     var actors = {
       raftX: raft.x,
       raftY: raft.y,
       raftVX: raft.vx,
       raftVY: raft.vy,
-      leviathanX: leviathanX,
-      leviathanY: leviathanY
+      leviathanX: leviathan.x,
+      leviathanY: leviathan.y
     };
 
     updateFluid(dt, time, geometry, actors);
+    updateStructure(dt, geometry);
+    updateMooring(dt, time, geometry);
+    updateSediment(dt, geometry);
+    updateSwimmers(dt, time, geometry, actors);
     updateParticles(dt, time, geometry, actors);
     drawSky(time, palette, geometry.line);
+    drawWeather(time, palette, geometry.line);
     drawWater(time, palette, geometry.line, raft.x);
     drawPortal(time, palette, geometry.line);
     drawSubstructure(time, palette, geometry);
     drawLeviathan(time, palette, actors);
     drawFloatingKelp(time, palette, geometry.line);
     drawFluidMaterial(palette);
+    drawSwimmers(palette);
     drawParticles(palette);
     drawSurface(time, palette, geometry.line, raft.x);
+    drawMooring(palette);
     drawPlatform(time, palette, geometry);
     drawRaft(time, palette);
     drawCarpet(time, palette, geometry.line);
@@ -896,8 +1412,13 @@
     canvas.style.width = width * ART_PIXEL + "px";
     canvas.style.height = height * ART_PIXEL + "px";
     ctx.imageSmoothingEnabled = false;
+    createSurface();
     createFluid(platformGeometry());
     createParticles();
+    createSwimmers();
+    createDeposits();
+    mooring.initialized = false;
+    leviathan.y = Math.floor(height * WATERLINE) + (height - Math.floor(height * WATERLINE)) * 0.69;
     raft.y = surfaceY(raft.x + 14, 0, Math.floor(height * WATERLINE), raft.x) - 4;
   }
 
@@ -945,6 +1466,9 @@
       firstContact ? 18 : 27,
       firstContact ? 0.72 : 0.28
     );
+    if (Math.abs(position.y - surfaceY(position.x, 0, line, raft.x)) < 24) {
+      disturbSurface(position.x, firstContact ? -1.25 : clamp(dy * 0.12, -1.8, 1.8), firstContact ? 13 : 9);
+    }
     if (firstContact && Math.abs(position.y - line) < 20 && ripples.length < 18) {
       ripples.push({ x: position.x, age: 0, amp: 1.45 });
     }
@@ -972,6 +1496,7 @@
     if (key === "F") document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (key === "H") shell.classList.toggle("ui-hidden");
     if (key === "D") debugFlow = !debugFlow;
+    if (key === "S") environment.forcedStorm = 12;
   });
   canvas.addEventListener("pointerdown", function (event) {
     pointer.down = true;

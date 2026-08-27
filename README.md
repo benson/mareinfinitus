@@ -21,9 +21,20 @@ Then open `http://localhost:3000/`.
 
 - `A`, `B`, `C`: visual-density palettes
 - drag through the ocean: inject momentum and suspended material
+- `S`: summon a storm to stress-test the coupled systems
 - `D`: show or hide the simulated current field
 - `F`: fullscreen
 - `H`: hide or show the interface
+
+## Simulated systems
+
+- projected 2D current field with solid platform boundaries
+- free surface coupled to currents, tides, rain, wind, wakes, and pointer input
+- buoyant raft and mooring buoy with an iterative rope constraint
+- platform sway, load sag, storm stress, wear, and gradual maintenance
+- suspended sediment that deposits on and erodes from the foundation
+- advected nutrients and plankton, grazing schools, and a feeding leviathan
+- slowly evolving weather, tidal current reversal, rain, and rare storms
 
 The interface also fades away automatically for screensaver-style viewing.
 
