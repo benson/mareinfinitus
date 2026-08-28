@@ -1,8 +1,15 @@
 # Simulation architecture
 
-Mare Infinitus is rendered in a fixed three-screen-pixel art grid. Resizing the
-window reveals more or less world; it never stretches the art pixels or changes
-the physical size of an animal.
+Mare Infinitus is rendered on an integer art grid: three screen pixels per art
+pixel on desktop and in the native screensavers, two on short mobile landscape
+views, and one on narrow portrait phones. Resizing reveals more or less world;
+it never stretches an individual art pixel or changes an animal's scale within
+the selected camera density.
+
+Ocean darkness and the ordinary-fauna band are measured in fixed world pixels,
+not as percentages of viewport height. A taller display therefore sees below
+the familiar water column into a dim, sparsely inhabited abyss instead of
+stretching the same gradient and schools to fill the screen.
 
 The scene is intentionally a coupled simulation rather than a collection of
 independent loops:

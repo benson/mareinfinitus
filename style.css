@@ -632,6 +632,18 @@ kbd {
   line-height: 1.6;
 }
 
+.welcome-note a {
+  color: var(--accent);
+  text-decoration-color: rgb(255 195 90 / 48%);
+  text-underline-offset: 3px;
+}
+
+.welcome-note a:hover,
+.welcome-note a:focus-visible {
+  color: var(--ink);
+  text-decoration-color: var(--accent);
+}
+
 .welcome-enter {
   width: 100%;
   padding: 11px 14px;

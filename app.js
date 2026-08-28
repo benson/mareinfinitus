@@ -2,8 +2,11 @@
   "use strict";
 
   var ART_PIXEL = 3;
+  var MOBILE_ART_PIXEL = 1;
   var FLUID_CELL = 6;
   var SURFACE_CELL = 2;
+  var FIXED_DARK_DEPTH = 230;
+  var FIXED_FAUNA_DEPTH = 205;
   var REFERENCE_WIDTH = 427;
   var PLATFORM_WORLD_WIDTH = 330;
   var PLATFORM_VISIBLE_WIDTH = 165;
@@ -158,6 +161,7 @@
   var creatureLightRasters = [];
   var width = 1;
   var height = 1;
+  var artPixel = ART_PIXEL;
   var cameraX = 0;
   var lastFrame = performance.now();
   var simulationTime = 0;
@@ -340,6 +344,11 @@
   function smoothstep(amount) {
     var value = clamp(amount, 0, 1);
     return value * value * (3 - 2 * value);
+  }
+
+  function smoothRange(edge0, edge1, value) {
+    if (edge0 === edge1) return value < edge0 ? 0 : 1;
+    return smoothstep((value - edge0) / (edge1 - edge0));
   }
 
   function waterlineY() {
@@ -1050,6 +1059,22 @@
     inspectionOutlineCache.outer = new Uint8Array(pixelCount);
   }
 
+  function bridgeInspectionMask(component, maskWidth, maskHeight, passes) {
+    for (var pass = 0; pass < passes; pass += 1) {
+      for (var bridgeY = 1; bridgeY < maskHeight - 1; bridgeY += 1) {
+        for (var bridgeX = 1; bridgeX < maskWidth - 1; bridgeX += 1) {
+          var bridgeIndex = bridgeY * maskWidth + bridgeX;
+          if (component[bridgeIndex]) continue;
+          var horizontal = component[bridgeIndex - 1] && component[bridgeIndex + 1];
+          var vertical = component[bridgeIndex - maskWidth] && component[bridgeIndex + maskWidth];
+          var diagonal = component[bridgeIndex - maskWidth - 1] && component[bridgeIndex + maskWidth + 1] ||
+            component[bridgeIndex - maskWidth + 1] && component[bridgeIndex + maskWidth - 1];
+          if (horizontal || vertical || diagonal) component[bridgeIndex] = 1;
+        }
+      }
+    }
+  }
+
   function paintInspectionOutlineCache() {
     if (!inspectionOutlineCache.ready) return;
     var pixelCount = inspectionOutlineCache.width * inspectionOutlineCache.height;
@@ -1120,6 +1145,7 @@
       for (var allIndex = 0; allIndex < pixelCount; allIndex += 1) {
         if (image.data[allIndex * 4 + 3] >= 18) component[allIndex] = 1;
       }
+      if (id === "MI-16") bridgeInspectionMask(component, bounds.width, bounds.height, 2);
     } else {
       var seed = -1;
       var nearestDistance2 = Infinity;
@@ -1333,7 +1359,7 @@
       [15, 7, 13, 5]
     ];
     var startY = Math.max(0, line);
-    var depthSpan = Math.max(1, height - startY);
+    var depthSpan = FIXED_DARK_DEPTH;
     for (var y = startY; y < height; y += 1) {
       var depth = clamp((y - startY) / depthSpan, 0, 1);
       for (var x = 0; x < width; x += 1) {
@@ -1519,9 +1545,12 @@
   function createParticles() {
     var line = waterlineY();
     var geometry = platformGeometry();
+    var availableDepth = Math.max(1, height - line);
+    var weightedDepth = Math.min(availableDepth, FIXED_DARK_DEPTH) +
+      Math.max(0, availableDepth - FIXED_DARK_DEPTH) * 0.12;
     var count = Math.min(
       1600,
-      Math.floor((width * Math.max(1, height - line)) / 210 * tuning.seaLife * visualDensity())
+      Math.floor(width * weightedDepth / 210 * tuning.seaLife * visualDensity())
     );
     particles = [];
     for (var i = 0; i < count; i += 1) {
@@ -1543,29 +1572,35 @@
 
   function placeParticle(particle, ordinal, geometry, timeSeed) {
     var waterDepth = Math.max(12, height - geometry.line - 5);
+    var ordinaryDepth = Math.min(waterDepth, FIXED_DARK_DEPTH);
+    var extraDepth = Math.max(0, waterDepth - FIXED_DARK_DEPTH);
     var seedOffset = timeSeed * 0.00017;
     if (particle.kind === "bubble") {
       var ventIndex = Math.floor(hash(particle.seed * 71 + ordinal) * geometry.pylons.length);
       var ventX = geometry.pylons[clamp(ventIndex, 0, geometry.pylons.length - 1)];
       particle.x = ventX + (hash(particle.seed * 97 + seedOffset) - 0.5) * 9;
-      particle.y = geometry.line + waterDepth * (0.42 + hash(particle.seed * 103 + seedOffset) * 0.53);
+      particle.y = geometry.line + Math.min(ordinaryDepth, 118) * (0.42 + hash(particle.seed * 103 + seedOffset) * 0.53);
     } else if (particle.kind === "silt") {
       var structureBias = hash(particle.seed * 109 + seedOffset);
       particle.x = structureBias > 0.34
         ? geometry.left - 30 + hash(particle.seed * 127 + seedOffset) * (geometry.right - geometry.left + 60)
         : hash(particle.seed * 131 + seedOffset) * width;
-      particle.y = geometry.line + waterDepth * (0.72 + hash(particle.seed * 139 + seedOffset) * 0.25);
+      particle.y = geometry.line + Math.min(ordinaryDepth, 148) * (0.72 + hash(particle.seed * 139 + seedOffset) * 0.25);
     } else {
       var bloomCount = Math.max(3, Math.ceil(width / 115));
       var bloomIndex = particle.cluster % bloomCount;
       var bloomX = (bloomIndex + 0.5) / bloomCount * width;
-      var bloomY = geometry.line + waterDepth * (0.2 + hash(bloomIndex * 17.7 + 4.1) * 0.43);
+      var bloomY = geometry.line + ordinaryDepth * (0.2 + hash(bloomIndex * 17.7 + 4.1) * 0.43);
       var bloomRadiusX = 16 + hash(bloomIndex * 29.3 + 2.8) * 26;
       var bloomRadiusY = 8 + hash(bloomIndex * 31.1 + 9.4) * 19;
       var cloudX = hash(particle.seed * 149 + seedOffset) + hash(particle.seed * 157 + seedOffset) - 1;
       var cloudY = hash(particle.seed * 163 + seedOffset) + hash(particle.seed * 173 + seedOffset) - 1;
       particle.x = bloomX + cloudX * bloomRadiusX;
       particle.y = bloomY + cloudY * bloomRadiusY;
+      var deepParticleChance = clamp(extraDepth / Math.max(1, waterDepth) * 0.28, 0, 0.16);
+      if (extraDepth > 20 && hash(particle.seed * 211 + ordinal * 3.7) < deepParticleChance) {
+        particle.y = geometry.line + FIXED_DARK_DEPTH + 8 + hash(particle.seed * 223 + seedOffset) * Math.max(1, extraDepth - 14);
+      }
     }
     for (var attempt = 0; attempt < 7 && isSolid(particle.x, particle.y, geometry); attempt += 1) {
       particle.x += (hash(particle.seed * 181 + attempt * 13.1) - 0.5) * 32;
@@ -1609,8 +1644,7 @@
   function createSwimmers() {
     var line = waterlineY();
     var waterDepth = Math.max(24, height - line);
-    var depthFactor = Math.sqrt(clamp((height - line) / 154, 0.58, 2.2));
-    var count = clamp(Math.floor(width / 13 * depthFactor * tuning.seaLife * visualDensity()), 10, 210);
+    var count = clamp(Math.floor(width / 13 * tuning.seaLife * visualDensity()), 10, 180);
     swimmers = [];
     for (var i = 0; i < count; i += 1) {
       var kind = i % 23 === 0
@@ -1629,7 +1663,12 @@
       var swimmerSeed = hash(i * 23.7 + 3);
       var physicalSize = 0.78 + hash(i * 31.9 + 11) * 0.58;
       var depthTarget = swimmerDepthPreference(kind, physicalSize, swimmerSeed);
-      var visualDepth = clamp(depthTarget + (hash(i * 43.1 + 29) - 0.5) * 0.16, 0.08, 0.96);
+      var depthPixels = clamp(
+        FIXED_FAUNA_DEPTH * (depthTarget + (hash(i * 11.9 + height) - 0.5) * 0.09),
+        12,
+        Math.min(FIXED_FAUNA_DEPTH, waterDepth - 7)
+      );
+      var visualDepth = clamp(depthPixels / FIXED_DARK_DEPTH, 0.08, 0.96);
       var swimmerSize = physicalSize * lerp(1.04, 0.76, visualDepth);
       var schoolCount = Math.max(3, Math.ceil(width / 120));
       var schoolId = Math.floor(i / 7) % schoolCount;
@@ -1638,7 +1677,7 @@
         : hash(i * 7.3 + width) * width;
       var swimmer = {
         x: swimmerX,
-        y: line + waterDepth * clamp(depthTarget + (hash(i * 11.9 + height) - 0.5) * 0.09, 0.1, 0.94),
+        y: line + depthPixels,
         vx: (hash(i * 4.7) - 0.5) * 0.8,
         vy: (hash(i * 9.1) - 0.5) * 0.3,
         energy: 0.45 + hash(i * 17.3) * 0.5,
@@ -1649,6 +1688,8 @@
         visualDepth: visualDepth,
         renderOrder: i,
         depthTarget: depthTarget,
+        depthTargetPixels: depthPixels,
+        abyssal: false,
         school: schoolId,
         transitSchool: kind === "fish" && schoolId < 2,
         transitDirection: schoolId % 2 === 0 ? 1 : -1,
@@ -1659,6 +1700,60 @@
       if (MotionEngine) MotionEngine.ensureAgent(swimmer);
       if (ecology) ecology.ensureAgent(swimmer, i, kind);
       swimmers.push(swimmer);
+    }
+
+    // Additional vertical space is genuinely deeper water. Populate it very
+    // sparsely with slow, dim variants of the largest and most light-bearing
+    // local fauna instead of stretching every ordinary school downward.
+    var extraDepth = Math.max(0, waterDepth - FIXED_DARK_DEPTH);
+    var deepCount = clamp(
+      Math.floor(width * extraDepth / 14500 * tuning.seaLife * visualDensity()),
+      0,
+      42
+    );
+    for (var deepIndex = 0; deepIndex < deepCount; deepIndex += 1) {
+      var renderIndex = count + deepIndex;
+      var deepKind = deepIndex % 9 === 0
+        ? "seaGiant"
+        : deepIndex % 4 === 0
+          ? "hectapus"
+          : deepIndex % 3 === 0
+            ? "eel"
+            : "jelly";
+      var deepSeed = hash(renderIndex * 37.1 + 91.3);
+      var deepPhysicalSize = 0.92 + hash(renderIndex * 17.7 + 12) * (deepKind === "seaGiant" ? 1.05 : 0.48);
+      var deepPixels = clamp(
+        FIXED_DARK_DEPTH + 14 + hash(renderIndex * 23.9 + height) * Math.max(1, extraDepth - 22),
+        FIXED_DARK_DEPTH + 8,
+        waterDepth - 7
+      );
+      var deepVisualDepth = clamp(deepPixels / FIXED_DARK_DEPTH, 0.92, 1);
+      var deepSize = deepPhysicalSize * lerp(0.78, 0.62, deepVisualDepth);
+      var deepActor = {
+        x: hash(renderIndex * 9.7 + width) * width,
+        y: line + deepPixels,
+        vx: (hash(renderIndex * 5.3) - 0.5) * 0.28,
+        vy: (hash(renderIndex * 8.9) - 0.5) * 0.08,
+        energy: 0.52 + hash(renderIndex * 13.3) * 0.42,
+        seed: deepSeed,
+        kind: deepKind,
+        size: deepSize,
+        physicalSize: deepPhysicalSize,
+        visualDepth: deepVisualDepth,
+        renderOrder: renderIndex,
+        depthTarget: deepPixels / FIXED_FAUNA_DEPTH,
+        depthTargetPixels: deepPixels,
+        abyssal: true,
+        school: -1,
+        transitSchool: false,
+        transitDirection: deepIndex % 2 === 0 ? 1 : -1,
+        direction: deepIndex % 2 === 0 ? 1 : -1,
+        directionLockUntil: 0
+      };
+      if (CreatureVariation) deepActor.variation = CreatureVariation.createTraits(deepKind, deepSeed, deepSize);
+      if (MotionEngine) MotionEngine.ensureAgent(deepActor);
+      if (ecology) ecology.ensureAgent(deepActor, renderIndex, deepKind);
+      swimmers.push(deepActor);
     }
   }
 
@@ -1710,8 +1805,34 @@
     return dx * dx + dy * dy <= 1;
   }
 
+  function seaGiantBodyContains(swimmer, x, y, time) {
+    if (!CreatureVariation) return false;
+    var traits = swimmer.variation || CreatureVariation.createTraits(swimmer.kind, swimmer.seed, swimmer.size);
+    swimmer.variation = traits;
+    var speed = Math.sqrt(swimmer.vx * swimmer.vx + swimmer.vy * swimmer.vy);
+    var movementDrive = clamp(speed / Math.max(0.55, swimmer.size * 1.1), 0, 1);
+    var animationRate = clamp(swimmer.behaviorAnimationRate || 0.72, 0.3, MAX_CREATURE_ANIMATION_RATE) *
+      lerp(0.52, 1, movementDrive);
+    var pose = MotionEngine && swimmer.motion
+      ? MotionEngine.poseFor(swimmer, motionPose)
+      : CreatureVariation.poseAt(traits, time * animationRate, speed, variationPose);
+    var centerX = Math.round(swimmer.x);
+    var centerY = Math.round(swimmer.y + pose.bob);
+    var facing = swimmer.direction < 0 ? -1 : 1;
+    var halfLength = Math.max(1, Math.floor(traits.bodyLength * 0.5));
+    var localX = (x - centerX) * facing;
+    if (localX < -halfLength - 2 || localX > halfLength + 2) return false;
+    var bodyU = clamp(localX / halfLength, -1, 1);
+    var profile = CreatureVariation.bodyProfileAt(traits, pose, bodyU, variationBody);
+    var halfHeight = Math.max(1, Math.round(profile.halfHeight)) + 2;
+    return Math.abs(y - (centerY + profile.center)) <= halfHeight;
+  }
+
   function swimmerPixelContains(swimmer, x, y, time) {
     if (!swimmerInspectionContains(swimmer, x, y)) return false;
+    // Deep-water occlusion separates some lit bands and fin pixels, but the
+    // identification target remains the coherent animal beneath those gaps.
+    if (swimmer.kind === "seaGiant" && seaGiantBodyContains(swimmer, x, y, time)) return true;
     inspectMaskCtx.setTransform(1, 0, 0, 1, 0, 0);
     inspectMaskCtx.clearRect(0, 0, width, height);
     inspectMaskCtx.globalAlpha = 1;
@@ -1947,7 +2068,7 @@
         var worldX = col * FLUID_CELL;
         var worldY = geometry.line + row * FLUID_CELL;
         fluid.u[index] = 0.3;
-        var depth = row / Math.max(1, rows - 1);
+        var depth = clamp(row * FLUID_CELL / FIXED_DARK_DEPTH, 0, 1);
         fluid.nutrient[index] = 0.24 + depth * 0.58 + hash(col * 3.1 + row * 7.7) * 0.08;
         var simulationWorldX = screenToWorldX(worldX);
         var bloomWaveA = Math.max(0, Math.sin(simulationWorldX * 0.035 + row * 0.17) * 0.5 + 0.5 - 0.48) / 0.52;
@@ -2096,7 +2217,7 @@
         }
         var backX = col - fluid.u0[index] * dt / FLUID_CELL;
         var backY = row - fluid.v0[index] * dt / FLUID_CELL;
-        var depth = row / Math.max(1, fluid.rows - 1);
+        var depth = clamp(row * FLUID_CELL / FIXED_DARK_DEPTH, 0, 1);
         var tidalCurrent = Math.cos(time * 0.025) * 0.18;
         var targetCurrent = 0.26 + tidalCurrent + Math.sin(row * 0.21 + time * 0.08) * 0.06 * (1 - depth);
         fluid.u[index] = sampleFluidArray(fluid.u0, backX, backY) * 0.997 + targetCurrent * 0.003;
@@ -2403,10 +2524,17 @@
         movementScale = 3.5;
         feedingRate = 0.026;
       }
+      if (swimmer.abyssal) {
+        desiredX *= 0.52;
+        desiredY *= 0.42;
+        maxSpeed *= 0.58;
+        movementScale *= 0.68;
+        feedingRate *= 0.35;
+      }
 
       if (swimmer.kind === "fish" && swimmer.transitSchool) {
         var routeDepth = 0.26 + swimmer.school * 0.13;
-        var routeY = geometry.line + Math.max(24, height - geometry.line) * routeDepth;
+        var routeY = geometry.line + Math.min(FIXED_FAUNA_DEPTH, Math.max(24, height - geometry.line - 7)) * routeDepth;
         desiredX += swimmer.transitDirection * 0.46;
         desiredY += clamp((routeY - swimmer.y) * 0.018, -0.34, 0.34);
         maxSpeed = Math.min(maxSpeed, 1.18);
@@ -2630,10 +2758,14 @@
       var waterDepth = Math.max(24, height - geometry.line);
       var depthPulse = Math.sin(time * (swimmer.kind === "jelly" ? 0.38 : 0.12) + swimmer.seed * 29);
       var depthRoam = swimmer.kind === "fish" || swimmer.kind === "jelly" ? 0.055 : 0.025;
-      var preferredY = geometry.line + waterDepth * clamp(
-        swimmer.depthTarget + behaviorDepthOffset + depthPulse * depthRoam,
-        0.1,
-        0.94
+      var baseDepthPixels = swimmer.abyssal && Number.isFinite(swimmer.depthTargetPixels)
+        ? swimmer.depthTargetPixels
+        : swimmer.depthTarget * FIXED_FAUNA_DEPTH;
+      var preferredY = geometry.line + clamp(
+        baseDepthPixels + behaviorDepthOffset * (swimmer.abyssal ? 44 : FIXED_FAUNA_DEPTH) +
+          depthPulse * depthRoam * FIXED_FAUNA_DEPTH,
+        10,
+        waterDepth - 6
       );
       var depthCorrection = clamp((preferredY - swimmer.y) * 0.014, -0.34, 0.34);
       desiredY += depthCorrection;
@@ -2681,10 +2813,10 @@
       }
       if (swimmer.y > height - 5 || swimmer.energy <= 0.005) {
         swimmer.x = hash(swimmer.seed * 41 + time) * width;
-        swimmer.y = geometry.line + waterDepth * clamp(
-          swimmer.depthTarget + (hash(swimmer.seed * 67 + time) - 0.5) * 0.08,
-          0.1,
-          0.94
+        swimmer.y = geometry.line + clamp(
+          baseDepthPixels + (hash(swimmer.seed * 67 + time) - 0.5) * (swimmer.abyssal ? 12 : 18),
+          10,
+          waterDepth - 6
         );
         swimmer.energy = 0.45;
         ejectSwimmerFromStructure(swimmer, geometry);
@@ -2774,6 +2906,21 @@
     }
   }
 
+  function drawPlanetCrater(x, y, radius, palette, seed) {
+    var craterRadius = Math.max(2, Math.round(radius));
+    ctx.globalAlpha = 0.86;
+    drawPixelDisc(x, y, craterRadius, palette.planetDark);
+    ctx.globalAlpha = 0.28;
+    pixelArc(x - 1, y - 1, craterRadius, Math.PI * 0.83, Math.PI * 1.62, palette.planetLight, 1);
+    ctx.globalAlpha = 0.24;
+    pixelArc(x + 1, y + 1, Math.max(1, craterRadius - 1), -0.08, Math.PI * 0.72, palette.planetDark, 1);
+    if (craterRadius >= 5) {
+      ctx.globalAlpha = 0.18;
+      pixelRect(x + Math.floor(craterRadius * 0.25), y + Math.floor(craterRadius * 0.2), 2, 1, palette.planetLight);
+      if (hash(seed + 4.7) > 0.52) pixelRect(x - craterRadius - 2, y, 2, 1, palette.planetDark);
+    }
+  }
+
   function drawPlanet(time, palette) {
     var planet = planetPosition(time);
     var radius = planet.radius;
@@ -2781,17 +2928,46 @@
     var cy = planet.y;
     drawPixelDisc(cx, cy, radius, palette.planetDark);
     drawPixelDisc(cx - 4, cy - 4, radius - 7, palette.planet);
-    for (var i = 0; i < 24; i += 1) {
+
+    // Broad mineral bands curve with the world rather than reading as noise
+    // pasted onto a flat disc.
+    ctx.globalAlpha = 0.12;
+    for (var latitude = -6; latitude <= 6; latitude += 1) {
+      var bandY = cy - 4 + latitude * 11;
+      var relativeY = bandY - (cy - 4);
+      var bandHalf = Math.floor(Math.sqrt(Math.max(0, (radius - 10) * (radius - 10) - relativeY * relativeY)));
+      if (bandHalf < 8) continue;
+      var bandStart = cx - 4 - bandHalf;
+      var bandEnd = cx - 4 + bandHalf;
+      var bandPhase = Math.floor(latitude * 17.3);
+      for (var terrainX = bandStart + 4; terrainX < bandEnd - 4; terrainX += 7) {
+        var runSeed = latitude * 73.1 + terrainX * 0.29 + bandPhase;
+        if (hash(runSeed) < 0.42) continue;
+        var run = 2 + Math.floor(hash(runSeed + 8.4) * 7);
+        pixelRect(terrainX, bandY + Math.round(Math.sin(terrainX * 0.07 + latitude) * 1.5), Math.min(run, bandEnd - terrainX - 2), 1, latitude % 3 === 0 ? palette.planetLight : palette.planetDark);
+      }
+    }
+
+    for (var i = 0; i < 22; i += 1) {
       var angle = hash(i * 7.2) * Math.PI * 2;
       var dist = Math.sqrt(hash(i * 9.7 + 4)) * (radius - 18);
-      var spot = 2 + Math.floor(hash(i * 4.3) * 8);
-      drawPixelDisc(
+      var spot = 2 + Math.floor(hash(i * 4.3) * 6);
+      drawPlanetCrater(
         cx + Math.cos(angle) * dist,
         cy + Math.sin(angle) * dist,
         spot,
-        i % 3 === 0 ? palette.planetLight : palette.planetDark
+        palette,
+        i
       );
     }
+
+    // A restrained lit limb and a broken terminator give the enormous sphere
+    // volume without smoothing away the authored pixels.
+    ctx.globalAlpha = 0.22;
+    pixelArc(cx - 4, cy - 4, radius - 8, Math.PI * 0.76, Math.PI * 1.42, palette.planetLight, 1);
+    ctx.globalAlpha = 0.3;
+    pixelArc(cx - 1, cy - 1, radius - 3, -0.42, Math.PI * 0.3, palette.planetDark, 3);
+    ctx.globalAlpha = 1;
   }
 
   function drawPerson(x, y, phase, color, direction, role) {
@@ -2799,16 +2975,38 @@
     var step = action === "walk" && Math.sin(phase) > 0 ? 1 : action === "walk" ? -1 : 0;
     var facing = direction || 1;
     var armLift = Math.sin(phase + Math.PI * 0.5) > 0 ? 0 : 1;
+    var crouched = action === "repair" || action === "setDown";
+    var bodyDrop = crouched ? 2 : 0;
     ctx.fillStyle = color;
-    ctx.fillRect(Math.floor(x), Math.floor(y - 6), 2, 2);
-    if (role === "guard") ctx.fillRect(Math.floor(x - 1), Math.floor(y - 7), 4, 1);
-    ctx.fillRect(Math.floor(x), Math.floor(y - 4), 2, 3);
+    ctx.fillRect(Math.floor(x + (crouched ? facing : 0)), Math.floor(y - 6 + bodyDrop), 2, 2);
+    if (role === "guard") ctx.fillRect(Math.floor(x - 1 + (crouched ? facing : 0)), Math.floor(y - 7 + bodyDrop), 4, 1);
+    ctx.fillRect(Math.floor(x), Math.floor(y - 4 + bodyDrop), crouched ? 3 : 2, crouched ? 2 : 3);
     if (action === "flashlight") {
       ctx.fillRect(Math.floor(x + (facing > 0 ? 2 : -2)), Math.floor(y - 4), 3, 1);
       ctx.fillRect(Math.floor(x + (facing > 0 ? -1 : 2)), Math.floor(y - 3), 1, 2);
-    } else if (action === "wave") {
+    } else if (action === "wave" || action === "signal") {
       ctx.fillRect(Math.floor(x + (facing > 0 ? 2 : -1)), Math.floor(y - 6), 1, 3);
       ctx.fillRect(Math.floor(x + (facing > 0 ? -1 : 2)), Math.floor(y - 3), 1, 2);
+      if (action === "signal") ctx.fillRect(Math.floor(x + (facing > 0 ? 3 : -2)), Math.floor(y - 7), 2, 1);
+    } else if (action === "binoculars") {
+      ctx.fillRect(Math.floor(x + facing * 2), Math.floor(y - 5), 3, 1);
+      ctx.fillRect(Math.floor(x + facing), Math.floor(y - 4), 2, 1);
+      ctx.fillRect(Math.floor(x - facing), Math.floor(y - 3), 1, 2);
+    } else if (action === "lean") {
+      ctx.fillRect(Math.floor(x + facing * 2), Math.floor(y - 3), 3, 1);
+      ctx.fillRect(Math.floor(x - facing), Math.floor(y - 3), 1, 2);
+    } else if (action === "carry") {
+      ctx.fillRect(Math.floor(x + facing * 2), Math.floor(y - 3), 2, 1);
+      ctx.fillRect(Math.floor(x - facing), Math.floor(y - 3), 1, 2);
+    } else if (action === "operate") {
+      ctx.fillRect(Math.floor(x + facing * 2), Math.floor(y - 4), 3, 1);
+      ctx.fillRect(Math.floor(x - facing), Math.floor(y - 3), 1, 2);
+    } else if (action === "repair" || action === "setDown") {
+      ctx.fillRect(Math.floor(x + facing * 3), Math.floor(y - 2), 2, 1);
+      ctx.fillRect(Math.floor(x - facing), Math.floor(y - 2), 1, 1);
+    } else if (action === "confer") {
+      ctx.fillRect(Math.floor(x + facing * 2), Math.floor(y - 4), 2, 1);
+      ctx.fillRect(Math.floor(x - facing), Math.floor(y - 3), 1, 2);
     } else if (action === "watch") {
       ctx.fillRect(Math.floor(x - 1), Math.floor(y - 3), 1, 2);
       ctx.fillRect(Math.floor(x + 2), Math.floor(y - 3), 1, 2);
@@ -2816,12 +3014,12 @@
       ctx.fillRect(Math.floor(x - 1), Math.floor(y - 4 + armLift), 1, 2);
       ctx.fillRect(Math.floor(x + 2), Math.floor(y - 4 + (1 - armLift)), 1, 2);
     }
-    ctx.fillRect(Math.floor(x - step), Math.floor(y - 1), 1, 3);
-    ctx.fillRect(Math.floor(x + 1 + step), Math.floor(y - 1), 1, 3);
-    if (role === "worker") ctx.fillRect(Math.floor(x), Math.floor(y - 7), 2, 1);
+    ctx.fillRect(Math.floor(x - step), Math.floor(y - 1 + (crouched ? 1 : 0)), crouched ? 2 : 1, crouched ? 2 : 3);
+    ctx.fillRect(Math.floor(x + 1 + step), Math.floor(y - 1 + (crouched ? 1 : 0)), crouched ? 2 : 1, crouched ? 2 : 3);
+    if (role === "worker") ctx.fillRect(Math.floor(x + (crouched ? facing : 0)), Math.floor(y - 7 + bodyDrop), 2, 1);
     if (role === "guest") ctx.fillRect(Math.floor(x + (facing > 0 ? 2 : -1)), Math.floor(y - 3), 1, 1);
     ctx.fillStyle = "#11111d";
-    ctx.fillRect(Math.floor(x + (facing > 0 ? 1 : 0)), Math.floor(y - 5), 1, 1);
+    ctx.fillRect(Math.floor(x + (facing > 0 ? 1 : 0) + (crouched ? facing : 0)), Math.floor(y - 5 + bodyDrop), 1, 1);
   }
 
   function platformResidentCount() {
@@ -2830,34 +3028,92 @@
 
   function platformResidentPose(index, time, geometry, out) {
     var pose = out || {};
-    var span = geometry.right - geometry.left;
     var activity = Math.max(0.25, tuning.platformActivity);
-    var cycle = (time * 0.34 * activity + index * 11.7) % 30;
+    var cycle = (time * activity / 96) % 1;
+    var visibleSpan = Math.min(PLATFORM_VISIBLE_WIDTH - 12, geometry.right - geometry.left - 12);
+    var railX = geometry.left + 16;
+    var innerX = geometry.left + Math.min(44, visibleSpan * 0.3);
+    var liftX = geometry.left + Math.min(78, visibleSpan * 0.54);
+    var repairX = geometry.left + Math.min(116, visibleSpan * 0.78);
     pose.role = index === 0 ? "guard" : "worker";
     pose.deck = geometry.deck - 2;
-    pose.phase = time * 0.75 * activity + index * 2.3;
+    pose.phase = time * Math.min(1.15, 0.48 + activity * 0.18) + index * 2.3;
+    pose.storyProgress = cycle;
+    pose.prop = "";
     if (index === 0) {
-      pose.direction = -1;
-      pose.x = geometry.left + Math.min(17, span * 0.13);
-      pose.action = cycle < 11 ? "watch" : cycle < 18 ? "flashlight" : "walk";
-      if (pose.action === "walk") {
-        pose.x += (Math.sin((cycle - 18) / 12 * Math.PI * 2) + 1) * Math.min(5, span * 0.035);
-        pose.direction = Math.cos((cycle - 18) / 12 * Math.PI * 2) > 0 ? 1 : -1;
+      if (cycle < 0.16) {
+        pose.action = "walk";
+        pose.direction = -1;
+        pose.x = lerp(innerX, railX, smoothRange(0, 0.16, cycle));
+      } else if (cycle < 0.27) {
+        pose.action = "lean";
+        pose.direction = -1;
+        pose.x = railX;
+      } else if (cycle < 0.5) {
+        pose.action = "flashlight";
+        pose.direction = -1;
+        pose.x = railX;
+      } else if (cycle < 0.6) {
+        pose.action = "signal";
+        pose.direction = 1;
+        pose.x = railX + 2;
+      } else if (cycle < 0.78) {
+        pose.action = "walk";
+        pose.direction = 1;
+        pose.x = lerp(railX + 2, innerX, smoothRange(0.6, 0.78, cycle));
+      } else if (cycle < 0.9) {
+        pose.action = "binoculars";
+        pose.direction = -1;
+        pose.x = innerX;
+      } else {
+        pose.action = "walk";
+        pose.direction = -1;
+        pose.x = lerp(innerX, innerX - 6, smoothRange(0.9, 1, cycle));
       }
     } else {
-      pose.x = geometry.left + span * 0.55 + Math.sin(time * 0.18 * activity + 1.4) * Math.min(10, span * 0.06);
-      pose.direction = Math.cos(time * 0.18 * activity + 1.4) >= 0 ? 1 : -1;
-      pose.action = cycle < 12 ? "walk" : cycle < 22 ? "watch" : "wave";
-      if (structure.integrity < 0.985 && cycle >= 12) {
-        pose.action = "work";
-        pose.x = geometry.left + span * 0.58;
+      if (cycle < 0.15) {
+        pose.action = "carry";
         pose.direction = -1;
+        pose.x = lerp(repairX, liftX, smoothRange(0, 0.15, cycle));
+        pose.prop = "crate";
+      } else if (cycle < 0.25) {
+        pose.action = "setDown";
+        pose.direction = -1;
+        pose.x = liftX;
+        pose.prop = "crate";
+      } else if (cycle < 0.39) {
+        pose.action = "operate";
+        pose.direction = 1;
+        pose.x = liftX - 5;
+        pose.prop = "console";
+      } else if (cycle < 0.52) {
+        pose.action = "walk";
+        pose.direction = 1;
+        pose.x = lerp(liftX, repairX, smoothRange(0.39, 0.52, cycle));
+      } else if (cycle < 0.68) {
+        pose.action = "repair";
+        pose.direction = 1;
+        pose.x = repairX;
+        pose.prop = "tool";
+      } else if (cycle < 0.8) {
+        pose.action = "walk";
+        pose.direction = -1;
+        pose.x = lerp(repairX, innerX + 8, smoothRange(0.68, 0.8, cycle));
+      } else if (cycle < 0.9) {
+        pose.action = "confer";
+        pose.direction = -1;
+        pose.x = innerX + 8;
+      } else {
+        pose.action = "walk";
+        pose.direction = 1;
+        pose.x = lerp(innerX + 8, repairX, smoothRange(0.9, 1, cycle));
       }
     }
     if (index === 0 && time < forcedFlashlightUntil) {
       pose.x = geometry.left + Math.min(17, span * 0.13);
       pose.direction = -1;
       pose.action = "flashlight";
+      pose.prop = "flashlight";
       pose.flashlightProgress = clamp((time - forcedFlashlightStartedAt) / 9, 0, 1);
     } else {
       pose.flashlightProgress = -1;
@@ -3041,14 +3297,20 @@
   function drawSky(time, palette, line) {
     pixelRect(0, 0, width, line - 18, palette.sky);
     pixelRect(0, line - 18, width, 18, palette.skyLow);
-    for (var band = line - 24; band < line - 10; band += 4) {
-      var bandOffset = Math.floor(screenToWorldX(0) / 11) % 2;
-      for (var bandX = -11; bandX < width + 11; bandX += 11) {
-        if ((Math.floor(band / 4) + Math.floor(bandX / 11) + bandOffset) % 2 === 0) {
-          pixelRect(bandX, band, 7, 2, palette.skyLow);
-        }
-      }
+    // Low haze is broken into long, irregular banks rather than a repeated
+    // checkerboard, so the horizon stays calm behind the portal and raft.
+    ctx.globalAlpha = 0.48;
+    var hazeStart = Math.floor(screenToWorldX(-20) / 19) - 1;
+    var hazeEnd = Math.ceil(screenToWorldX(width + 20) / 19) + 1;
+    for (var haze = hazeStart; haze <= hazeEnd; haze += 1) {
+      var hazeSeed = haze * 19.73;
+      if (hash(hazeSeed) < 0.39) continue;
+      var hazeX = worldToScreenX(haze * 19 + hash(hazeSeed + 2.1) * 6);
+      var hazeY = line - 22 + Math.floor(hash(hazeSeed + 5.4) * 9);
+      var hazeWidth = 5 + Math.floor(hash(hazeSeed + 8.8) * 12);
+      pixelRect(hazeX, hazeY, hazeWidth, 1 + (hash(hazeSeed + 12.3) > 0.78 ? 1 : 0), palette.skyLow);
     }
+    ctx.globalAlpha = 1;
 
     var starCell = 2.35;
     var firstStar = Math.floor(cameraX / starCell) - 1;
@@ -3058,10 +3320,12 @@
       var x = Math.floor(worldToScreenX(starWorldX));
       var y = Math.floor(hash(i * 5.9 + 17) * 112);
       if (y >= line) continue;
-      var twinkle = hash(i * 7 + Math.floor(time * 0.8));
-      ctx.fillStyle = twinkle > 0.9 ? palette.foam : palette.star;
+      var twinkle = (Math.sin(time * 0.18 + hash(i * 7) * Math.PI * 2) + 1) * 0.5;
+      ctx.globalAlpha = 0.58 + twinkle * 0.42;
+      ctx.fillStyle = twinkle > 0.94 && i % 11 === 0 ? palette.foam : palette.star;
       ctx.fillRect(x, y, 1, 1);
     }
+    ctx.globalAlpha = 1;
     drawPlanet(time, palette);
   }
 
@@ -3332,7 +3596,7 @@
         leviathan.variation = CreatureVariation.createTraits("leviathan", leviathan.seed, leviathan.scale);
       }
       if (!leviathan.y) {
-        leviathan.y = geometry.line + (height - geometry.line) * leviathan.depth;
+        leviathan.y = geometry.line + Math.min(height - geometry.line - 8, FIXED_FAUNA_DEPTH * leviathan.depth);
       }
       var sense = 48 * leviathan.scale;
       var foodLeft = sampleFluid(leviathan.x - sense, leviathan.y).plankton;
@@ -3340,7 +3604,7 @@
       var foodUp = sampleFluid(leviathan.x, leviathan.y - sense).plankton;
       var foodDown = sampleFluid(leviathan.x, leviathan.y + sense).plankton;
       var localFlow = sampleFluid(leviathan.x, leviathan.y);
-      var preferredDepthY = geometry.line + (height - geometry.line) * leviathan.depth;
+      var preferredDepthY = geometry.line + Math.min(height - geometry.line - 8, FIXED_FAUNA_DEPTH * leviathan.depth);
       var targetVX = leviathan.direction * (0.12 + 0.045 / leviathan.scale) +
         localFlow.x * 0.1 + (foodRight - foodLeft) * 0.045;
       var targetVY = (foodDown - foodUp) * 0.065 +
@@ -4222,12 +4486,14 @@
     var result = out || {};
     var variant = traits ? traits.paletteVariant : Math.floor(swimmer.seed * 4);
     var colors = [palette.android, palette.bubble, palette.plankton, palette.kelp];
+    if (swimmer.abyssal) colors = [palette.waterDeep, palette.steelDark, palette.creature, palette.bubble];
     if (swimmer.kind === "seaGiant") colors = [palette.steelDark, palette.creature, palette.steel, palette.abyss];
     if (swimmer.kind === "shark") colors = [palette.android, palette.plankton, palette.bubble, palette.planetLight];
     result.base = colors[variant % colors.length];
     result.pattern = colors[(variant + 1) % colors.length];
     result.dark = swimmer.kind === "seaGiant" ? palette.abyss : palette.steelDark;
     result.glow = traits && traits.glowPattern > 0 ? palette.lamp : colors[(variant + 2) % colors.length];
+    if (swimmer.abyssal && traits && traits.glowPattern > 0) result.glow = palette.bubble;
     if (SceneEngine) {
       var depthEnvironment = { storm: environment.storm, waterAmount: 1, glow: traits ? traits.glowStrength : 0 };
       result.base = SceneEngine.colorAtDepth(result.base, swimmer, depthEnvironment, palette);
@@ -4481,7 +4747,7 @@
       var visibility = 0.76;
       if (AmbientLife) {
         visibility = AmbientLife.sampleDepth(
-          swimmer.y, waterlineY(), height, environment.storm, glow, depthSample
+          swimmer.y, waterlineY(), waterlineY() + FIXED_DARK_DEPTH, environment.storm, glow, depthSample
         ).visibility * (swimmer.eventVisibilityScale || 1);
       }
       var visualDepth = Number.isFinite(swimmer.visualDepth) ? swimmer.visualDepth : swimmer.depthTarget;
@@ -4489,7 +4755,7 @@
       if (SceneEngine) {
         var composed = SceneEngine.styleFor(swimmer, {
           storm: environment.storm,
-          waterAmount: clamp((swimmer.y - waterlineY()) / Math.max(1, height - waterlineY()), 0, 1),
+          waterAmount: clamp((swimmer.y - waterlineY()) / FIXED_DARK_DEPTH, 0, 1),
           glow: glow
         }, palette, sceneStyle);
         planeVisibility = composed.alpha;
@@ -4510,42 +4776,39 @@
 
   function drawWeather(time, palette, line) {
     var storm = environment.storm;
-    if (storm < 0.18) return;
-    var cloudMasks = [
-      ["1111", "111 ", " 11 "],
-      [" 111", "1111", "11  "],
-      ["11  ", "1111", " 111"]
-    ];
-    var cloudCell = 3;
-    var frontDrift = Math.floor(time * environment.wind * 0.42);
-    var density = visualDensity();
-    ctx.globalAlpha = clamp((storm - 0.11) * 0.76, 0, 0.68);
-    for (var cloudX = -cloudCell * 2; cloudX < width + cloudCell * 2; cloudX += cloudCell) {
-      var cloudWorldX = Math.floor(screenToWorldX(cloudX) + frontDrift);
-      var broadShape = Math.sin(cloudWorldX * 0.041) * 4 + Math.sin(cloudWorldX * 0.017 + 1.9) * 5;
-      var cloudBase = Math.floor(8 + storm * 27 + broadShape);
-      for (var cloudY = 2; cloudY < cloudBase; cloudY += cloudCell) {
-        var cellX = Math.floor(cloudWorldX / cloudCell);
-        var cellY = Math.floor(cloudY / cloudCell);
-        var grain = hash(cellX * 19.17 + cellY * 47.31);
-        var edgeDepth = cloudBase - cloudY;
-        var threshold = edgeDepth < 7 ? 0.56 - edgeDepth * 0.045 : 0.16;
-        var densityWeather = clamp((density - DENSITY_PROFILES.A) / (DENSITY_PROFILES.C - DENSITY_PROFILES.A), 0, 1);
-        threshold += lerp(0.14, -0.08, densityWeather);
-        if (grain < threshold) continue;
-        var cloudColor = edgeDepth < 8 && hash(cellX * 7.3 + cellY) > 0.42
-          ? palette.steel
-          : palette.steelDark;
-        var maskIndex = Math.abs(cellX + cellY) % cloudMasks.length;
-        drawPixelMask(
-          cloudX,
-          cloudY,
-          cloudMasks[maskIndex],
-          { "1": cloudColor },
-          (cellX + Math.floor(density * 10)) % 2 === 0
-        );
+    if (storm < 0.12) return;
+    var frontDrift = time * environment.wind * 0.18;
+    var cloudStrength = smoothRange(0.12, 0.9, storm);
+    var densityWeather = clamp((visualDensity() - DENSITY_PROFILES.A) / (DENSITY_PROFILES.C - DENSITY_PROFILES.A), 0, 1);
+
+    // One continuous, slow-moving cloud ceiling: column silhouettes preserve
+    // real pixel edges while broad sine fields make coherent banks and bays.
+    for (var cloudX = -2; cloudX < width + 2; cloudX += 1) {
+      var cloudWorldX = screenToWorldX(cloudX) + frontDrift;
+      var bank = Math.sin(cloudWorldX * 0.018 + 0.7) * 0.62 +
+        Math.sin(cloudWorldX * 0.0067 + 2.4) * 0.74 +
+        Math.sin(cloudWorldX * 0.051) * 0.16;
+      var presence = bank + cloudStrength * 1.08;
+      if (presence < 0.08) continue;
+      var scallop = Math.abs(Math.sin(cloudWorldX * 0.043 + 1.1)) * 4.5;
+      var cloudBase = Math.min(line - 26, Math.floor(4 + cloudStrength * 22 + presence * 8 + scallop));
+      if (cloudBase <= 1) continue;
+      ctx.globalAlpha = 0.18 + cloudStrength * 0.34;
+      pixelRect(cloudX, 0, 1, cloudBase, palette.steelDark);
+      ctx.globalAlpha = 0.08 + cloudStrength * 0.19;
+      pixelRect(cloudX, Math.max(0, cloudBase - 5), 1, 4, palette.steel);
+
+      var cellX = Math.floor(cloudWorldX);
+      if (hash(cellX * 17.31) > lerp(0.82, 0.63, densityWeather)) {
+        ctx.globalAlpha = 0.12 + cloudStrength * 0.18;
+        pixelRect(cloudX, Math.max(1, cloudBase - 9 - Math.floor(hash(cellX * 7.9) * 6)), 1, 2, palette.skyLow);
+      }
+      if (presence > 0.42 && hash(cellX * 29.7 + 8.2) > 0.9) {
+        ctx.globalAlpha = 0.1 + cloudStrength * 0.18;
+        pixelRect(cloudX, cloudBase + 1, 1, 2 + Math.floor(hash(cellX * 11.4) * 4), palette.steelDark);
       }
     }
+    ctx.globalAlpha = 1;
     if (storm > 0.82 && hash(Math.floor(time * 1.7) * 13.1) > 0.965) {
       ctx.globalAlpha = 0.3;
       pixelRect(0, 0, width, line, palette.foam);
@@ -4576,15 +4839,17 @@
       var particle = particles[i];
       if (kindFilter && particle.kind !== kindFilter) continue;
       var absence = particle.kind === "plankton" ? planktonVisibilityAt(particle.x, particle.y) : 1;
+      var particleDepth = clamp((particle.y - waterlineY()) / FIXED_DARK_DEPTH, 0, 1);
+      var depthVisibility = lerp(1, 0.24, particleDepth);
       if (particle.kind === "plankton" && hash(particle.seed * 991) > absence * eventParticleScale) continue;
       if (particle.kind === "bubble") {
-        ctx.globalAlpha = 0.62;
+        ctx.globalAlpha = 0.62 * depthVisibility;
         ctx.fillStyle = palette.bubble;
       } else if (particle.kind === "silt") {
-        ctx.globalAlpha = 0.3;
+        ctx.globalAlpha = 0.3 * depthVisibility;
         ctx.fillStyle = particle.seed > 0.52 ? palette.timberLight : palette.kelp;
       } else {
-        ctx.globalAlpha = (0.3 + particle.seed * 0.2) * absence * eventParticleScale;
+        ctx.globalAlpha = (0.3 + particle.seed * 0.2) * absence * eventParticleScale * depthVisibility;
         ctx.fillStyle = particle.seed > 0.9 ? palette.lamp : palette.plankton;
       }
       pixelRect(particle.x, particle.y, 1, 1, ctx.fillStyle);
@@ -4642,7 +4907,17 @@
     var activity = tuning.platformActivity;
     var events = platformLife && platformLife.events;
     var cartTravel = Math.max(30, span - 78);
-    var cartX = left + 24 + (time * 2.3 * activity) % cartTravel;
+    var cartCycle = (time * activity / 68 + 0.08) % 1;
+    var cartProgress = cartCycle < 0.18
+      ? 0
+      : cartCycle < 0.38
+        ? smoothRange(0.18, 0.38, cartCycle)
+        : cartCycle < 0.68
+          ? 1
+          : cartCycle < 0.88
+            ? 1 - smoothRange(0.68, 0.88, cartCycle)
+            : 0;
+    var cartX = left + 24 + cartProgress * cartTravel;
     drawPixelMask(
       cartX,
       deck - 5,
@@ -4650,10 +4925,29 @@
       { "1": palette.timberLight, "2": palette.steel, "3": palette.abyss },
       false
     );
+    if (cartCycle > 0.2 && cartCycle < 0.83) {
+      drawPixelMask(
+        cartX + 1,
+        deck - 8,
+        ["1111", "1221", "1111"],
+        { "1": palette.timber, "2": palette.steelDark },
+        false
+      );
+    }
 
     var liftPylon = geometry.pylons[Math.min(4, geometry.pylons.length - 1)];
-    var liftAmount = (Math.sin(time * 0.43 * activity) + 1) * 0.5;
+    var liftCycle = (time * activity / 44 + 0.19) % 1;
+    var liftAmount = liftCycle < 0.2
+      ? 0
+      : liftCycle < 0.42
+        ? smoothRange(0.2, 0.42, liftCycle)
+        : liftCycle < 0.62
+          ? 1
+          : liftCycle < 0.84
+            ? 1 - smoothRange(0.62, 0.84, liftCycle)
+            : 0;
     var liftY = lerp(deck - 2, deck + 10, liftAmount);
+    pixelLine(liftPylon, deck - 14, liftPylon, liftY, palette.steelDark, 1);
     drawPixelMask(
       liftPylon - 3,
       liftY,
@@ -4665,18 +4959,28 @@
     var craneX = left + Math.floor(span * 0.16);
     var hookAmount = events && events.craneActive
       ? events.craneHook
-      : (Math.sin(time * 0.7 * activity) + 1) * 0.5;
-    var hookY = deck - 31 + Math.round(hookAmount * 10);
+      : 0;
+    var hookY = deck - 9 - Math.round(hookAmount * 22);
+    var hookSway = Math.round(Math.sin(time * 0.42) * hookAmount * 2);
     for (var ropeY = deck - 46; ropeY < hookY; ropeY += 3) {
       pixelRect(craneX, ropeY, 1, 1, palette.steel);
     }
     drawPixelMask(
-      craneX - 2,
+      craneX - 2 + hookSway,
       hookY,
       ["1 1", " 1 ", "111"],
       { "1": palette.lamp },
       false
     );
+    if (events && events.craneActive) {
+      drawPixelMask(
+        craneX - 4 + hookSway,
+        hookY + 3,
+        ["111111", "122221", "111111"],
+        { "1": palette.timberLight, "2": palette.timber },
+        false
+      );
+    }
 
     var steamX = left + Math.floor(span * 0.43);
     for (var puff = 0; puff < 7; puff += 1) {
@@ -4688,7 +4992,7 @@
     }
     ctx.globalAlpha = 1;
 
-    var flagFrame = Math.floor(time * 4 * activity) % 3;
+    var flagFrame = Math.floor(time * Math.min(2.4, 0.9 + activity * 0.45)) % 3;
     var flagMasks = [
       ["11   ", "1111 ", "11   "],
       ["111  ", " 1111", "111  "],
@@ -4726,6 +5030,42 @@
           previousFishingY = nextFishingY;
         }
         pixelRect(previousFishingX, previousFishingY, 1, 1, palette.lamp);
+      }
+    }
+  }
+
+  function drawPlatformResidentProps(pose, time, palette) {
+    var facing = pose.direction || 1;
+    if (pose.prop === "crate") {
+      var carried = pose.action === "carry";
+      var crateX = carried ? pose.x + facing * 4 : pose.x + facing * 3;
+      var crateY = carried ? pose.deck - 4 : pose.deck - 2;
+      drawPixelMask(
+        crateX,
+        crateY,
+        ["1111", "1221", "1111"],
+        { "1": palette.timberLight, "2": palette.timber },
+        facing < 0
+      );
+    } else if (pose.prop === "console") {
+      var consoleX = pose.x + facing * 5;
+      drawPixelMask(
+        consoleX,
+        pose.deck - 5,
+        ["111", "122", "111", " 1 "],
+        { "1": palette.steelDark, "2": palette.steel },
+        facing < 0
+      );
+      var consolePulse = Math.floor(time / 1.4) % 3;
+      pixelRect(consoleX + (facing > 0 ? 1 + consolePulse % 2 : 1 - consolePulse % 2), pose.deck - 4, 1, 1, palette.lamp);
+    } else if (pose.prop === "tool") {
+      var toolX = pose.x + facing * 4;
+      pixelLine(pose.x + facing * 2, pose.deck - 2, toolX, pose.deck - 1, palette.timberLight, 1);
+      var sparkCycle = (time + 0.37) % 3.8;
+      if (sparkCycle < 0.42) {
+        var sparkStep = Math.floor(sparkCycle * 18);
+        pixelRect(toolX + facing * (1 + sparkStep % 2), pose.deck - 2 - sparkStep % 3, 1, 1, palette.lamp);
+        if (sparkStep > 3) pixelRect(toolX - facing, pose.deck - 3, 1, 1, palette.planetLight);
       }
     }
   }
@@ -4841,11 +5181,14 @@
     var span = right - left;
 
     moduleSpan(left, deck, span, 9, palette.timber, palette.timberLight, palette.steelDark, 211, 10);
-    var deckGapX = left + Math.floor(span * 0.19);
-    moduleSpan(left - 3, deck - 2, deckGapX - left - 3, 3, palette.timberLight, palette.foam, palette.timber, 223, 8);
-    moduleSpan(deckGapX + 8, deck - 2, right - deckGapX - 5, 3, palette.timberLight, palette.foam, palette.timber, 227, 8);
-    pixelRect(deckGapX - 1, deck - 1, 2, 1, palette.steelDark);
-    pixelRect(deckGapX + 7, deck, 2, 1, palette.timber);
+    // The upper chord is structural, so it never disappears into a cosmetic
+    // damage gap. Uneven repair plates preserve the history without making the
+    // entire deck read as two unrelated rectangles.
+    moduleSpan(left - 3, deck - 2, span + 6, 3, palette.timberLight, palette.foam, palette.timber, 223, 8);
+    var deckRepairX = left + Math.floor(span * 0.19);
+    pixelRect(deckRepairX - 2, deck - 2, 10, 1, palette.steel);
+    pixelRect(deckRepairX, deck - 1, 7, 1, palette.steelDark);
+    pixelRect(deckRepairX + 2, deck, 3, 1, palette.timberLight);
 
     for (var p = 0; p < geometry.pylons.length; p += 1) {
       var px = Math.floor(geometry.pylons[p]);
@@ -4915,10 +5258,13 @@
     var padY = deck - 48;
     var padWidth = Math.floor(span * 0.24);
     var missingBeamX = left + 6 + Math.floor(padWidth * 0.58);
-    moduleSpan(left + 6, padY, missingBeamX - left - 6, 3, palette.steel, palette.timberLight, palette.steelDark, 293, 8);
-    moduleSpan(missingBeamX + 9, padY, left + 6 + padWidth - missingBeamX - 9, 3, palette.steel, palette.timberLight, palette.steelDark, 297, 8);
-    pixelLine(missingBeamX - 1, padY + 1, missingBeamX + 2, padY + 6, palette.steelDark, 1);
-    pixelRect(missingBeamX + 8, padY + 1, 2, 1, palette.timberLight);
+    moduleSpan(left + 6, padY, padWidth, 3, palette.steel, palette.timberLight, palette.steelDark, 293, 8);
+    // A field repair keeps the load-bearing top continuous while a broken
+    // underside brace still gives the old deck a distinct, distressed shape.
+    pixelRect(missingBeamX - 2, padY, 8, 1, palette.timberLight);
+    pixelRect(missingBeamX - 1, padY + 1, 6, 1, palette.steelDark);
+    pixelLine(missingBeamX + 1, padY + 3, missingBeamX + 4, padY + 7, palette.steelDark, 1);
+    pixelRect(missingBeamX + 4, padY + 7, 2, 1, palette.timberLight);
     pixelLine(left + 10, padY + 3, left + 10, deck - 1, palette.steelDark, 3);
     moduleSpan(
       left + Math.floor(span * 0.79), deck - 68, Math.floor(span * 0.2), 3,
@@ -4930,6 +5276,7 @@
       blockLeft, mainBlockWidth, upperBlockLeft, upperBlockWidth, towerX
     );
 
+    drawPlatformMotion(time, palette, geometry, left, span, deck, towerX);
     var platformPeople = platformResidentCount();
     var residentPose = {};
     for (var i = 0; i < platformPeople; i += 1) {
@@ -4943,6 +5290,7 @@
         residentPose.role,
         residentPose.action
       );
+      drawPlatformResidentProps(residentPose, time, palette);
       if (residentPose.action === "flashlight") {
         var flashlightFacing = residentPose.direction || -1;
         pixelRect(residentPose.x + flashlightFacing * 4, residentPose.deck - 4, 2, 1, palette.lamp);
@@ -4952,7 +5300,6 @@
       ctx.fillStyle = palette.lamp;
       ctx.fillRect(Math.floor(left + span * 0.58 + 4), deck - 1, 2, 1);
     }
-    drawPlatformMotion(time, palette, geometry, left, span, deck, towerX);
     ctx.restore();
   }
 
@@ -5157,18 +5504,54 @@
   function drawPortal(time, palette, line) {
     var x = Math.floor(worldToScreenX(48));
     var gateY = line + 5;
-    ctx.globalAlpha = 0.52;
-    pixelArc(x, gateY, 58, Math.PI, Math.PI * 2, palette.steelDark, 5);
-    ctx.globalAlpha = 0.64;
-    pixelArc(x, gateY, 55, Math.PI, Math.PI * 2, palette.steel, 2);
-    ctx.globalAlpha = 0.36 + Math.sin(time * 0.3) * 0.08;
-    pixelArc(x, gateY, 47, Math.PI, Math.PI * 2, palette.bubble, 1);
-    for (var marker = 0; marker < 13; marker += 1) {
-      var angle = Math.PI + (marker / 12) * Math.PI;
-      var pulse = (Math.sin(time * 0.82 + marker * 0.91) + 1) * 0.5;
-      ctx.globalAlpha = 0.16 + pulse * 0.46;
-      pixelRect(x + Math.cos(angle) * 52, gateY + Math.sin(angle) * 52, 1, 1, palette.foam);
+    ctx.globalAlpha = 0.58;
+    pixelArc(x, gateY, 60, Math.PI, Math.PI * 2, palette.steelDark, 7);
+    ctx.globalAlpha = 0.62;
+    pixelArc(x, gateY, 56, Math.PI, Math.PI * 2, palette.steel, 3);
+    ctx.globalAlpha = 0.34;
+    pixelArc(x, gateY, 52, Math.PI, Math.PI * 2, palette.abyss, 2);
+
+    // Ancient Core cladding: discrete plates ride the structural curve, with
+    // stable missing/damaged sections instead of a generic smooth hoop.
+    for (var plate = 0; plate <= 30; plate += 1) {
+      var plateAmount = plate / 30;
+      var angle = Math.PI + plateAmount * Math.PI;
+      var plateSeed = plate * 19.73 + 4.2;
+      if (hash(plateSeed) < 0.1) continue;
+      var plateX = Math.round(x + Math.cos(angle) * 57);
+      var plateY = Math.round(gateY + Math.sin(angle) * 57);
+      var outerFacing = Math.abs(Math.cos(angle)) > 0.68;
+      drawPixelMask(
+        plateX - (outerFacing ? 1 : 2),
+        plateY - (outerFacing ? 2 : 1),
+        outerFacing ? ["11", "12", "11"] : ["1111", "1221"],
+        { "1": palette.steelDark, "2": hash(plateSeed + 8) > 0.46 ? palette.steel : palette.timberLight },
+        plate > 15
+      );
+      if (hash(plateSeed + 12.6) > 0.76) {
+        ctx.globalAlpha = 0.26;
+        pixelRect(plateX, plateY, 1, 1, palette.planetDark);
+      }
+      ctx.globalAlpha = 0.62;
     }
+
+    // The inert transit trace is almost dark; its sparse cyan wakes move on a
+    // long period and stay locked to the arch rather than blinking in place.
+    ctx.globalAlpha = 0.22;
+    pixelArc(x, gateY, 47, Math.PI, Math.PI * 2, palette.bubble, 1);
+    var traceTravel = (time * 0.035) % 1;
+    for (var marker = 0; marker < 9; marker += 1) {
+      var traceAmount = (traceTravel + marker / 9) % 1;
+      var traceAngle = Math.PI + traceAmount * Math.PI;
+      ctx.globalAlpha = 0.12 + (1 - marker / 9) * 0.22;
+      pixelRect(x + Math.cos(traceAngle) * 47, gateY + Math.sin(traceAngle) * 47, 1, 1, palette.bubble);
+    }
+
+    // Broad footings make the hundred-meter arch feel planted in its hidden
+    // migratory foundation before the water pass occludes their lower halves.
+    ctx.globalAlpha = 0.64;
+    drawPixelMask(x - 65, gateY - 3, [" 1111 ", "111111", "122221", "111111"], { "1": palette.steelDark, "2": palette.steel }, false);
+    drawPixelMask(x + 59, gateY - 3, [" 1111 ", "111111", "122221", "111111"], { "1": palette.steelDark, "2": palette.steel }, true);
     ctx.globalAlpha = 1;
   }
 
@@ -5263,9 +5646,17 @@
 
   function resize() {
     resizeRequest = 0;
-    var nextWidth = Math.max(1, Math.ceil(window.innerWidth / ART_PIXEL));
-    var nextHeight = Math.max(1, Math.ceil(window.innerHeight / ART_PIXEL));
-    if (nextWidth === width && nextHeight === height && canvas.width === width && canvas.height === height) return;
+    var nextArtPixel = !screensaverMode && window.innerWidth <= 520
+      ? MOBILE_ART_PIXEL
+      : !screensaverMode && window.innerWidth <= 950 && window.innerHeight <= 520
+        ? 2
+        : ART_PIXEL;
+    var nextWidth = Math.max(1, Math.ceil(window.innerWidth / nextArtPixel));
+    var nextHeight = Math.max(1, Math.ceil(window.innerHeight / nextArtPixel));
+    if (
+      nextWidth === width && nextHeight === height && nextArtPixel === artPixel &&
+      canvas.width === width && canvas.height === height
+    ) return;
     var oldCameraX = cameraX;
     var oldWidth = width;
     var oldHeight = height;
@@ -5279,6 +5670,7 @@
 
     width = nextWidth;
     height = nextHeight;
+    artPixel = nextArtPixel;
     cameraX = (REFERENCE_WIDTH - width) * 0.5;
     var xShift = oldCameraX - cameraX;
     var newLine = waterlineY();
@@ -5288,8 +5680,8 @@
     inspectMaskCanvas.width = width;
     inspectMaskCanvas.height = height;
     inspectionOutlineCache.ready = false;
-    canvas.style.width = width * ART_PIXEL + "px";
-    canvas.style.height = height * ART_PIXEL + "px";
+    canvas.style.width = width * artPixel + "px";
+    canvas.style.height = height * artPixel + "px";
     ctx.imageSmoothingEnabled = false;
     buildWaterTexture(PALETTES[mode], newLine);
     if (materialField) materialField.resize(width, height);
@@ -5504,7 +5896,10 @@
     if (!Number.isFinite(nextValue)) return;
     var previousValue = tuning[name];
     tuning[name] = nextValue;
-    if (name === "seaLife" || name === "density") rebalanceSeaLife();
+    // During boot the tuning controls are synchronized before the world has
+    // dimensions. Do not seed a one-pixel placeholder ecosystem that resize()
+    // would then preserve inside the real viewport.
+    if ((name === "seaLife" || name === "density") && fluid) rebalanceSeaLife();
     if (name === "waveEnergy" && surface && previousValue > 0) {
       var scale = nextValue / previousValue;
       for (var i = 0; i < surface.height.length; i += 1) {
@@ -5895,6 +6290,8 @@
       return {
         time: simulationTime,
         viewport: [width, height],
+        artPixel: artPixel,
+        depthModel: { darkness: FIXED_DARK_DEPTH, fauna: FIXED_FAUNA_DEPTH },
         cameraX: cameraX,
         waterline: geometry.line,
         platformWorldLeft: screenToWorldX(geometry.left),
@@ -5926,6 +6323,9 @@
           return Object.assign({}, platformResidentPose(residentIndex, simulationTime, geometry, {}));
         }),
         swimmerCount: swimmers.length,
+        abyssalSwimmerCount: swimmers.reduce(function (count, swimmer) {
+          return count + (swimmer.abyssal ? 1 : 0);
+        }, 0),
         swimmerSamples: swimmers.slice(0, 24).map(function (swimmer) {
           return {
             kind: swimmer.kind,
@@ -5935,7 +6335,8 @@
             behavior: swimmer.behaviorName || "uninitialized",
             motionPhase: swimmer.motion ? swimmer.motion.phase : null,
             propulsion: swimmer.motion ? swimmer.motion.propulsion : null,
-            visualDepth: swimmer.visualDepth
+            visualDepth: swimmer.visualDepth,
+            abyssal: !!swimmer.abyssal
           };
         }),
         swimmersIntersectingStructure: swimmers.reduce(function (count, swimmer) {

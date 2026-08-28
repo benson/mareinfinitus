@@ -1,7 +1,7 @@
 {
-  "name": "Mare Infinitus — A Living Pixel Ocean",
+  "name": "Mare Infinitus — A Living Simulation",
   "short_name": "Mare Infinitus",
-  "description": "A living pixel-material ocean inspired by Dan Simmons's Hyperion Cantos.",
+  "description": "Step into the violet sea: a living pixel-material scene from Dan Simmons's Endymion.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

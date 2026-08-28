@@ -1,8 +1,10 @@
-# Mare Infinitus
+# Mare Infinitus — A Living Simulation
 
 A living, fixed-pixel material simulation of the violet ocean world from Dan
-Simmons's *Hyperion Cantos*. The viewport reveals more or less of the world at
-different screen sizes; the art pixels remain three physical pixels wide.
+Simmons's *Endymion*. The viewport reveals more or less of the world at
+different screen sizes. Desktop and screensaver views use a three-screen-pixel
+grid; narrow mobile views use a one-screen-pixel grid so the phone becomes a
+wider camera rather than a magnifying glass.
 
 **Live:** [bensonperry.com/mareinfinitus](https://bensonperry.com/mareinfinitus/)
 
@@ -56,9 +58,14 @@ Then open `http://localhost:3000/`.
 
 ## Raster/world contract
 
-- one art pixel is always exactly `3 × 3` display pixels
+- one art pixel maps to an exact integer display-pixel cell: `3 × 3` on desktop
+  and screensavers, `2 × 2` on short mobile landscapes, and `1 × 1` on narrow
+  portrait phones
 - world objects live at stable world coordinates; the viewport is only a camera crop
 - resizing reveals or hides world area and preserves the running material state
+- water darkness reaches its abyssal value at a fixed world depth; a taller
+  viewport reveals darker, sparsely inhabited water instead of stretching the
+  same gradient and fauna across the additional height
 - structures are assembled from fixed integer-pixel modules, panels, discs, and raster lines
 - viewport-sized rectangles are reserved for environmental fields such as sky and water
 - water depth transitions use ordered dithering between exact palette pixels
