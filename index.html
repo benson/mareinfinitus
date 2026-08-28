@@ -4,16 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#070713">
-    <meta name="description" content="A living pixel-material simulation of the violet ocean world Mare Infinitus.">
-    <meta property="og:title" content="Mare Infinitus — Material Study">
-    <meta property="og:description" content="A living pixel-material simulation of an endless alien ocean.">
+    <meta name="description" content="Step into Mare Infinitus: a living pixel-material ocean inspired by Dan Simmons’s Hyperion Cantos.">
+    <link rel="canonical" href="https://bensonperry.com/mareinfinitus/">
+    <meta property="og:title" content="Mare Infinitus — A Living Pixel Ocean">
+    <meta property="og:description" content="Step into the violet sea: a living pixel-material scene from Dan Simmons’s Hyperion Cantos.">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://bensonperry.com/mare-infinitus/">
-    <meta property="og:image" content="https://bensonperry.com/mare-infinitus/public/og.png">
+    <meta property="og:url" content="https://bensonperry.com/mareinfinitus/">
+    <meta property="og:image" content="https://bensonperry.com/mareinfinitus/public/og.png">
+    <meta property="og:image:secure_url" content="https://bensonperry.com/mareinfinitus/public/og.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1680">
+    <meta property="og:image:height" content="944">
+    <meta property="og:image:alt" content="A violet alien ocean beneath an enormous orange world, with a lit platform above glowing sea life.">
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Mare Infinitus — A Living Pixel Ocean">
+    <meta name="twitter:description" content="A living pixel-material scene from Dan Simmons’s Hyperion Cantos.">
+    <meta name="twitter:image" content="https://bensonperry.com/mareinfinitus/public/og.png">
+    <meta name="twitter:image:alt" content="A violet alien ocean beneath an enormous orange world, with a lit platform above glowing sea life.">
     <link rel="icon" href="public/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
-    <title>Mare Infinitus — Material Study</title>
+    <title>Mare Infinitus — A Living Pixel Ocean</title>
   </head>
   <body>
     <main class="mare-shell mode-b">
@@ -23,15 +33,70 @@
         <span>material study / live</span>
       </header>
       <section class="style-switcher ui-chrome" aria-label="Visual style">
-        <p>VISUAL DENSITY</p>
-        <div>
-          <button data-mode="A"><span>A</span>Austere</button>
-          <button data-mode="B" class="active"><span>B</span>Balanced</button>
-          <button data-mode="C"><span>C</span>Luminous</button>
+        <p>ECOSYSTEM DENSITY</p>
+        <div class="density-control">
+          <label>Population <output data-tuning-output="density">0.7×</output><input data-tuning="density" type="range" min="0.3" max="1.8" step="0.05" value="0.7"></label>
+          <div class="density-scale" aria-hidden="true"><span>Sparse</span><span>Balanced</span><span>Teeming</span></div>
         </div>
-        <small>drag water to stir · S storm · D currents · F fullscreen</small>
+        <div class="tuning-controls" aria-label="Simulation tuning">
+          <label>Raul speed <output data-tuning-output="carpetSpeed">9.0×</output><input data-tuning="carpetSpeed" type="range" min="5" max="12" step="0.25" value="9"></label>
+          <label>Sea life <output data-tuning-output="seaLife">1.7×</output><input data-tuning="seaLife" type="range" min="0.5" max="3" step="0.1" value="1.7"></label>
+          <label>Platform <output data-tuning-output="platformActivity">1.6×</output><input data-tuning="platformActivity" type="range" min="0.5" max="3" step="0.1" value="1.6"></label>
+          <label>Waves <output data-tuning-output="waveEnergy">1.2×</output><input data-tuning="waveEnergy" type="range" min="0.5" max="2.5" step="0.1" value="1.2"></label>
+        </div>
+        <div class="control-footer">
+          <small>drag water to stir · S storm · D currents · F fullscreen</small>
+          <div class="control-actions">
+            <button class="about-trigger" type="button" data-welcome-open>ABOUT</button>
+            <button class="glossary-trigger" type="button" data-glossary-toggle aria-expanded="false" aria-controls="mare-glossary">
+              <span>G</span> BESTIARY
+            </button>
+          </div>
+        </div>
       </section>
+      <aside class="glossary-panel ui-chrome" id="mare-glossary" aria-labelledby="glossary-title" hidden>
+        <header class="glossary-header">
+          <div>
+            <p>FIELD INDEX</p>
+            <h1 id="glossary-title">Bestiary &amp; glossary</h1>
+          </div>
+          <div class="glossary-actions">
+            <button class="glossary-pin" type="button" data-glossary-pin aria-pressed="false">PIN</button>
+            <button class="glossary-close" type="button" data-glossary-close aria-label="Close bestiary">ESC</button>
+          </div>
+        </header>
+        <p class="glossary-intro"><strong>Step into this scene from <em>Endymion</em> in deeper detail.</strong> Hold <kbd>CTRL</kbd> and hover to identify anything. Hover an entry to highlight every example; click to copy its <strong>MI code</strong>. Short passages labeled <strong>BOOK TEXT</strong> come from the novel; <strong>SIM</strong> entries are extrapolations for the living material study.</p>
+        <div class="glossary-key" aria-label="Entry provenance">
+          <span><i class="origin-dot book"></i> BOOK — named or described in <em>Endymion</em></span>
+          <span><i class="origin-dot sim"></i> SIM — material-study invention</span>
+        </div>
+        <div class="glossary-list" data-glossary-list></div>
+        <p class="glossary-copy-status" data-glossary-copy-status aria-live="polite"></p>
+      </aside>
+      <div class="inspection-tooltip" data-inspection-tooltip role="status" aria-live="polite" hidden>
+        <span data-inspection-id></span>
+        <strong data-inspection-name></strong>
+        <small data-inspection-summary></small>
+      </div>
+      <div class="inspect-key-hint ui-chrome" aria-hidden="true"><kbd>CTRL</kbd> HOLD + HOVER TO IDENTIFY</div>
+      <div class="welcome-backdrop" data-welcome hidden>
+        <section class="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-title" aria-describedby="welcome-description">
+          <p class="welcome-kicker">RIVER TETHYS · WORLD 326</p>
+          <h1 id="welcome-title">Mare Infinitus</h1>
+          <p id="welcome-description">This is a slightly supplemented simulation of Mare Infinitus from Dan Simmons&rsquo;s <em>Hyperion Cantos</em>.</p>
+          <p class="welcome-warning">Spoilers ahead.</p>
+          <blockquote>
+            <p>&ldquo;We were not on a river&mdash;the ocean stretched to the night sky in each direction; we were no longer in daylight; we were not sinking.&rdquo;</p>
+            <cite><em>Endymion</em>, chapter 31</cite>
+          </blockquote>
+          <p class="welcome-note">Hold <kbd>CTRL</kbd> and hover over the world to identify it. Open the bestiary for book text and field notes.</p>
+          <button class="welcome-enter" type="button" data-welcome-enter>ENTER THE VIOLET SEA</button>
+        </section>
+      </div>
     </main>
+    <script src="systems/creature-variation.js"></script>
+    <script src="systems/ecology.js"></script>
+    <script src="systems/ambient-life.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

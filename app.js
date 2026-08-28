@@ -5,17 +5,18 @@
   var FLUID_CELL = 6;
   var SURFACE_CELL = 2;
   var REFERENCE_WIDTH = 427;
-  var PLATFORM_WORLD_LEFT = 145;
-  var PLATFORM_WORLD_WIDTH = 390;
+  var PLATFORM_WORLD_WIDTH = 330;
+  var PLATFORM_VISIBLE_WIDTH = 165;
   var WORLD_WRAP_LEFT = -120;
   var WORLD_WRAP_RIGHT = 680;
+  var MAX_CREATURE_ANIMATION_RATE = 0.9;
 
   var PALETTES = {
     A: {
       sky: "#080817", skyLow: "#16112d", star: "#ddd7ff",
       planetDark: "#5f241d", planet: "#a44728", planetLight: "#dd7441",
       waterTop: "#4b3a7a", water: "#27204e", waterDeep: "#100f2d",
-      foam: "#ded9ff", plankton: "#d39b32", bubble: "#6bb9c5",
+      foam: "#ded9ff", plankton: "#d39b32", bubble: "#6bb9c5", android: "#477fc5",
       kelp: "#9a6f20", timber: "#2a191c", timberLight: "#67402b",
       steel: "#39384e", steelDark: "#20202f", lamp: "#ffb23d",
       abyss: "#05050f", creature: "#0a091b"
@@ -24,7 +25,7 @@
       sky: "#09091b", skyLow: "#21163a", star: "#eee8ff",
       planetDark: "#652a25", planet: "#a94e31", planetLight: "#ee8650",
       waterTop: "#62518f", water: "#30265f", waterDeep: "#14133b",
-      foam: "#f1eaff", plankton: "#e0a83c", bubble: "#73cad1",
+      foam: "#f1eaff", plankton: "#e0a83c", bubble: "#73cad1", android: "#5597df",
       kelp: "#b78628", timber: "#2a1c20", timberLight: "#795038",
       steel: "#48475d", steelDark: "#252538", lamp: "#ffc35a",
       abyss: "#060612", creature: "#0b0a20"
@@ -33,12 +34,37 @@
       sky: "#090c1e", skyLow: "#2a193c", star: "#f8efff",
       planetDark: "#6f3029", planet: "#b85b38", planetLight: "#f29558",
       waterTop: "#745b9f", water: "#392b6c", waterDeep: "#171642",
-      foam: "#fff4ff", plankton: "#edb64d", bubble: "#83dce0",
+      foam: "#fff4ff", plankton: "#edb64d", bubble: "#83dce0", android: "#67b0ef",
       kelp: "#c59635", timber: "#302127", timberLight: "#8a5b3d",
       steel: "#55546d", steelDark: "#2b2a42", lamp: "#ffd36d",
       abyss: "#070713", creature: "#0d0c25"
     }
   };
+  PALETTES.A = Object.assign({}, PALETTES.B);
+  PALETTES.C = Object.assign({}, PALETTES.B);
+  var DENSITY_PROFILES = { A: 0.38, B: 1, C: 1.75 };
+  var INSPECTION_MASK_PALETTE = {};
+  Object.keys(PALETTES.B).forEach(function (key) {
+    INSPECTION_MASK_PALETTE[key] = "#ffffff";
+  });
+  INSPECTION_MASK_PALETTE.sun = "#ffffff";
+
+  var CreatureVariation = window.MareCreatureVariation || null;
+  var AmbientLife = window.MareAmbientLife || null;
+  var ecology = window.MareEcology ? window.MareEcology.create({ seed: 326.73 }) : null;
+  var ecologySteering = ecology ? ecology.createSteeringOutput() : null;
+  var ecologyInfluence = ecology ? ecology.createInfluenceOutput() : null;
+  var ecologyContext = {};
+  var ecologyEvent = null;
+  var ecologyPreviewEvent = null;
+  var variationPose = {};
+  var variationBody = {};
+  var variationPoint = {};
+  var variationColors = {};
+  var depthSample = {};
+  var bodyFieldSample = {};
+  var deepBodyDescriptors = [];
+  var platformLife = AmbientLife ? AmbientLife.createPlatformState(326, 72, 64) : null;
 
   var canvas = document.querySelector(".mare-canvas");
   var shell = document.querySelector(".mare-shell");
@@ -47,13 +73,43 @@
   var particles = [];
   var swimmers = [];
   var ripples = [];
+  var rainDrops = [];
+  var rainSplashes = [];
+  var rainSpawnAccumulator = 0;
+  var rainSeed = 0;
   var fluid = null;
   var surface = null;
   var deposits = null;
+  var waterTexture = null;
   var debugFlow = false;
-  var raft = { x: -42, y: 0, vx: 1.1, vy: 0, angle: 0, angularVelocity: 0 };
-  var leviathan = { x: -130, y: 0, vx: 0.17, vy: 0 };
-  var carpet = { x: 470, y: 0, vx: -3.2, vy: 0 };
+  var tuning = {
+    density: 0.7,
+    carpetSpeed: 9,
+    seaLife: 1.7,
+    platformActivity: 1.6,
+    waveEnergy: 1.2
+  };
+  var raft = { x: -42, y: 0, vx: 0.82, vy: 0, angle: 0, angularVelocity: 0 };
+  var leviathans = [
+    { x: 72, y: 0, vx: 0.17, vy: 0, worldStart: 72, depth: 0.69, scale: 0.82, direction: 1, phase: 0.2 },
+    { x: 348, y: 0, vx: -0.12, vy: 0, worldStart: 348, depth: 0.82, scale: 1.08, direction: -1, phase: 2.7 },
+    { x: 610, y: 0, vx: 0.14, vy: 0, worldStart: 610, depth: 0.51, scale: 0.67, direction: 1, phase: 5.1 }
+  ];
+  if (CreatureVariation) {
+    leviathans.forEach(function (leviathan, index) {
+      leviathan.variation = CreatureVariation.createTraits("leviathan", leviathan.phase + index * 0.37, leviathan.scale);
+    });
+  }
+  var colossalEncounters = [
+    { start: -150, cycle: 1100, duration: 300, phase: 0.4, direction: 1, worldDepth: 100, scale: 7.4, tendrils: [] },
+    { start: 400, cycle: 1100, duration: 310, phase: 2.8, direction: -1, worldDepth: 124, scale: 9.2, tendrils: [] }
+  ];
+  var backgroundTitans = [
+    { start: 145, cycle: 1560, duration: 270, phase: 1.1, direction: 1, worldDepth: 172, type: "mountainback" },
+    { start: 910, cycle: 1560, duration: 250, phase: 4.4, direction: -1, worldDepth: 198, type: "veilback" }
+  ];
+  var backgroundTitanPreview = "";
+  var carpet = { x: 470, y: 0, vx: -28.8, vy: 0, waitingUntil: 0, passIndex: 0 };
   var environment = {
     tide: 0,
     tideVelocity: 0,
@@ -74,13 +130,125 @@
     points: [], previous: [], buoyX: 0, buoyY: 0,
     buoyVX: 0, buoyVY: 0, segmentLength: 5.5, initialized: false
   };
-  var pointer = { down: false, x: 0, y: 0 };
+  var pointer = { down: false, inside: false, x: 0, y: 0, clientX: 0, clientY: 0 };
   var width = 1;
   var height = 1;
   var cameraX = 0;
   var started = performance.now();
   var lastFrame = started;
   var uiTimer = 0;
+  var glossaryOpen = false;
+  var glossaryPinned = false;
+  var glossaryHoverId = "";
+  var inspectHeld = false;
+  var inspectTargetId = "";
+  var inspectSubjectKey = "";
+  var observationCounts = Object.create(null);
+  var observedSubjects = Object.create(null);
+  var inspectTooltip = document.querySelector("[data-inspection-tooltip]");
+  var inspectId = document.querySelector("[data-inspection-id]");
+  var inspectName = document.querySelector("[data-inspection-name]");
+  var inspectSummary = document.querySelector("[data-inspection-summary]");
+  var inspectMaskCanvas = document.createElement("canvas");
+  var inspectMaskCtx = inspectMaskCanvas.getContext("2d", { alpha: true, willReadFrequently: true });
+  var glossaryPanel = document.querySelector("#mare-glossary");
+  var glossaryToggle = document.querySelector("[data-glossary-toggle]");
+  var glossaryPin = document.querySelector("[data-glossary-pin]");
+  var glossaryList = document.querySelector("[data-glossary-list]");
+  var glossaryCopyStatus = document.querySelector("[data-glossary-copy-status]");
+  var welcome = document.querySelector("[data-welcome]");
+  var welcomeEnter = document.querySelector("[data-welcome-enter]");
+  var welcomeOpen = document.querySelector("[data-welcome-open]");
+  var welcomePreviouslyFocused = null;
+
+  var BESTIARY = [
+    { id: "MI-00", group: "Ocean materials", name: "Violet sea", origin: "BOOK", summary: "The world-ocean itself. In the book, suspended phytoplankton—not the atmosphere—gives the articulated water its violet color.", excerpts: [
+      { text: "The sea was a disturbing violet, serrated by wave-top crests of a blue so dark as to be almost black, and occasionally broken by yellowkelp beds or foam of an even darker violet.", source: "Endymion, ch. 31" },
+      { text: "The violet sea was very big, very empty, and our raft only a speck below, a tiny black rectangle on the reticulated violet-and-black sea.", source: "Endymion, ch. 31" },
+      { text: "Rising with each great movement of the violet sea, dropping into wide troughs as the ocean seemed to breathe in.", source: "Endymion, ch. 34" }
+    ] },
+    { id: "MI-01", group: "Ocean materials", name: "Surface foam", origin: "BOOK", summary: "Dark-blue crests and violet foam gather along the moving peaks of the sea, following Raul’s first view of the water.", excerpts: [
+      { text: "Easy swells turning into regular two-meter waves that jostled the raft some but were far enough apart to let us ride them without undue discomfort.", source: "Endymion, ch. 31" },
+      { text: "We’re between these swells most of the time. But when we get closer ...", source: "Endymion, ch. 31" }
+    ] },
+    { id: "MI-02", group: "Ocean materials", name: "Phytoplankton bloom", origin: "BOOK", summary: "Drifting clustered specks carried by the current, feeding the small fauna and tinting Mare Infinitus violet.", excerpts: [
+      { text: "The violet articulated seas are caused by a form of phytoplankton in the water and are not a result of the atmospheric scattering which grants the traveler such lovely sunsets.", source: "Endymion, ch. 31" },
+      { text: "The moons were rising and the sea was coming alive with light.", source: "Endymion, ch. 33" }
+    ] },
+    { id: "MI-03", group: "Ocean materials", name: "Suspended silt", origin: "SIM", summary: "Warm brown mineral specks lifted from the deep foundation and carried through the water." },
+    { id: "MI-04", group: "Ocean materials", name: "Pylon bubbles", origin: "SIM", summary: "Small cyan bubbles rising around the submerged platform supports." },
+    { id: "MI-05", group: "Ocean materials", name: "Current tracers", origin: "SIM", summary: "Fine flow threads that reveal the direction and strength of the water when D is held." },
+
+    { id: "MI-10", group: "Bestiary", name: "School fish", origin: "SIM", summary: "Small grazing fish that school, separate, align, seek plankton, and scatter from predators." },
+    { id: "MI-11", group: "Bestiary", name: "Drifting jelly", origin: "SIM", summary: "Buoyant jellyfish with softly articulated legs, carried more by the water than by their own propulsion." },
+    { id: "MI-12", group: "Bestiary", name: "Violet eel", origin: "SIM", summary: "A quick, shallow-to-midwater swimmer with a lateral wriggle." },
+    { id: "MI-13", group: "Bestiary", name: "Ocean ray", origin: "SIM", summary: "A broad, slow swimmer that glides below the schooling fish." },
+    { id: "MI-14", group: "Bestiary", name: "Rainbow shark", origin: "BOOK", summary: "A named Mare Infinitus predator; here it hunts the schooling fish and leaves a stronger wake.", excerpts: [
+      { text: "They seemed to glitter a dozen bright colors, from the twin dorsal fins to their long bellies. They were about three meters long, they moved like predators with powerful surges of their tails, and their teeth were very white.", source: "Endymion, ch. 33" },
+      { text: "Their shimmering, electric colors were visible beneath the waves ... coming up from beneath seemed to be their preferred mode of attack.", source: "Endymion, ch. 34" }
+    ] },
+    { id: "MI-15", group: "Bestiary", name: "Hectapus", origin: "BOOK", summary: "One of the sea animals named in the old WorldWeb guide: a many-limbed hunter of the middle depths.", excerpt: "The hectapus soup.", source: "Endymion, ch. 31" },
+    { id: "MI-16", group: "Bestiary", name: "Sea giant", origin: "BOOK", summary: "A large deep-water animal named on Gus’s Oceanic menu, slow-moving and heavy in the current.", excerpt: "The grilled sea giant.", source: "Endymion, ch. 31" },
+    { id: "MI-17", group: "Bestiary", name: "Lamp-mouth leviathan", origin: "BOOK", summary: "The aggressive luminous leviathan named in the guidebook; its glow and body displace nearby water.", excerpts: [
+      { text: "The grub-white beast is easily three times the size of the station platform: a mass of eyestalks, gaping maws, fibrillating gill slits each the size of the thopter, pulsating tendrils extending hundreds of meters.", source: "Endymion, ch. 35" },
+      { text: "Dangling antennae each carrying a cold-light ‘lantern’ of great brilliance—even out here in the daylight—and mouths, many mouths, each large enough to swallow a fleet submarine.", source: "Endymion, ch. 35" }
+    ] },
+    { id: "MI-18", group: "Bestiary", name: "Deep gigacanth", origin: "BOOK", summary: "One of the scarcely seen, kilometer-scale ancestors of the surface predators, living far below the mid-littoral current.", excerpt: "That’s where the big granddaddies of our surface ’canths like Lamp Mouth live, sir ... monsters down that deep, sir ... klicks long ...", source: "Endymion, ch. 32" },
+
+    { id: "MI-20", group: "Travelers", name: "River Tethys raft", origin: "BOOK", summary: "A buoyant gymnosperm-wood raft crossing the ocean segment of the River Tethys.", excerpts: [
+      { text: "The raft rode quite differently in these gentle but serious ocean swells, but my bargeman’s eye noted that while the waves tended to lap over the edges a bit more, the gymnosperm wood seemed even more buoyant here.", source: "Endymion, ch. 31" },
+      { text: "Because of the rocking as the gentle ocean swells rolled under us, all three of us were holding on to the upright post there, which still held A. Bettik’s shirt flapping in the night wind.", source: "Endymion, ch. 31" }
+    ] },
+    { id: "MI-21", group: "Travelers", name: "Aenea", origin: "BOOK", summary: "The pale figure riding the raft while Raul scouts ahead.", excerpt: "‘Wow,’ Aenea said softly to herself. I guessed that she was talking about the rising moons. All three were huge and orange.", source: "Endymion, ch. 31" },
+    { id: "MI-22", group: "Travelers", name: "A. Bettik", origin: "BOOK", summary: "The blue android steering the raft while Aenea and Raul scout ahead.", excerpt: "A. Bettik was standing—shirtless once again in the midday heat—at the steering oar. He waved a bare blue arm. We both waved back.", source: "Endymion, ch. 31" },
+    { id: "MI-23", group: "Travelers", name: "Raul on the hawking mat", origin: "BOOK", summary: "Raul scouting ahead on the charged hawking mat, skimming low and fast over the swells.", excerpts: [
+      { text: "I banked left, swooped beneath the support beams there, and skipped just above the waves, heading west under the protective edge of the platform.", source: "Endymion, ch. 33" },
+      { text: "I swooped out from under the platform into the shadow of it ... and stayed just millimeters above the wave tops.", source: "Endymion, ch. 33" }
+    ] },
+
+    { id: "MI-30", group: "Structures", name: "Farcaster portal", origin: "BOOK", summary: "The hundred-meter arch on the horizon that the raft must pass through to continue along the River Tethys.", excerpts: [
+      { text: "The arch was just visible, a chord of negative space cutting into the Milky Way just above the horizon.", source: "Endymion, ch. 31" },
+      { text: "There is no way to get inside the ancient Core-constructed arch, nor to tell where—if anywhere—someone might have been transported through it.", source: "Endymion, ch. 35" }
+    ] },
+    { id: "MI-31", group: "Structures", name: "Station 326 Mid-littoral", origin: "BOOK", summary: "The huge multi-level fishing platform: dark wood and steel, lit windows, landing pads, docks, and catwalks.", excerpts: [
+      { text: "It’s a platform in the ocean—big—on stilts of some sort. The platform, with its blinking navigation beacons for aircraft and lamplit windows just becoming visible, was several klicks closer.", source: "Endymion, ch. 31" },
+      { text: "It has a lot of levels ... There are several ships tied up ... fishing boats is my bet. And a pad for skimmers and other aircraft.", source: "Endymion, ch. 31" },
+      { text: "Mare Infinitus Station Three-twenty-six Mid-littoral.", source: "Endymion, ch. 35" }
+    ] },
+    { id: "MI-32", group: "Structures", name: "Platform pylons", origin: "BOOK", summary: "Supports hold the main platform well above the waves, leaving open water and air beneath its deck.", excerpt: "There was no deck or platform down there, just twenty meters of air between my boots and the violet waves. The moons were rising and the sea was coming alive with light.", source: "Endymion, ch. 33" },
+    { id: "MI-33", group: "Structures", name: "Submerged foundation", origin: "BOOK", summary: "The great weighted base beneath the station, holding it in a sea whose floor lies thousands of fathoms below.", excerpt: "They run these foundation bases a couple of hundred fathoms—big, heavy things they’ve got to be, sir—and then run big, bladed drag anchors out on cables beneath that.", source: "Endymion, ch. 32" },
+    { id: "MI-34", group: "Structures", name: "Mooring buoy", origin: "SIM", summary: "A floating marker tethered to the platform, tugging against wind, waves, and current." },
+    { id: "MI-35", group: "Structures", name: "Sea-anchor line", origin: "BOOK", summary: "One of the immense cables trailing from a bladed drag anchor to keep the station from roaming with the Big Tides.", excerpt: "With those keelweights and twenty klicks of cable trailing to rock, our cities and platforms don’t go very far, even in the Big Tide season.", source: "Endymion, ch. 32" },
+    { id: "MI-36", group: "Structures", name: "Platform occupants", origin: "BOOK", summary: "A sparse pair of residents now pace, watch the edge, work, wave, and occasionally search the water with a light.", excerpt: "Footsteps pounded on the catwalks beneath the main deck.", source: "Endymion, ch. 33" },
+
+    { id: "MI-40", group: "Sky", name: "Near-Jovian primary", origin: "BOOK", summary: "The immense rocky world in the sky. Mare Infinitus is its second moon, not the other way around.", excerpts: [
+      { text: "Mare Infinitus ... is the satellite of a near Jovian-sized rocky world.", source: "Endymion, ch. 31" },
+      { text: "All three were huge and orange, but the center one was so large that even half of its diameter as it rose seemed to fill what I still thought of as the eastern sky.", source: "Endymion, ch. 31" },
+      { text: "Aenea rose to her feet, and her standing silhouette still came less than halfway up the giant orange hemisphere.", source: "Endymion, ch. 31" }
+    ] },
+    { id: "MI-41", group: "Sky", name: "Storm front", origin: "SIM", summary: "A dark weather mass carrying wind, rain, lightning, and rougher seas across the horizon." },
+
+    { id: "MI-50", group: "Ecological phenomena", name: "Mass jelly bloom", origin: "SIM", summary: "A rare gathering of buoyant jellies drawn into a food-rich current layer." },
+    { id: "MI-51", group: "Ecological phenomena", name: "Pelagic migration", origin: "SIM", summary: "A coordinated passage that aligns fish, rays, and sea giants into a temporary traveling corridor." },
+    { id: "MI-52", group: "Ecological phenomena", name: "Feeding frenzy", origin: "SIM", summary: "A short burst of concentrated prey movement, hunting, fluid disturbance, and plankton consumption." },
+    { id: "MI-53", group: "Ecological phenomena", name: "Deep quiet", origin: "SIM", summary: "A long dim interval when movement and visible particles recede while biological glow becomes easier to see." },
+    { id: "MI-54", group: "Ecological phenomena", name: "Distant breach", origin: "SIM", summary: "A rare animal breaking the horizon far from the platform and sending energy back into the free surface." },
+    { id: "MI-55", group: "Ecological phenomena", name: "Abyssal shadow passage", origin: "SIM", summary: "An enormous segmented absence crossing the deep water, displacing current and erasing plankton from its silhouette." },
+    { id: "MI-56", group: "Ecological phenomena", name: "Abyssal titan", origin: "SIM", summary: "A vanishingly rare, landscape-scale animal passing behind the visible ecosystem—more absence than creature at this distance." }
+  ];
+  var BESTIARY_BY_ID = Object.create(null);
+  BESTIARY.forEach(function (entry) { BESTIARY_BY_ID[entry.id] = entry; });
+
+  try {
+    var savedObservations = JSON.parse(window.localStorage.getItem("mare-observations-v1") || "null");
+    if (savedObservations && savedObservations.counts && savedObservations.subjects) {
+      observationCounts = savedObservations.counts;
+      observedSubjects = savedObservations.subjects;
+    }
+  } catch (error) {
+    observationCounts = Object.create(null);
+    observedSubjects = Object.create(null);
+  }
 
   function hash(n) {
     var value = Math.sin(n * 12.9898) * 43758.5453;
@@ -91,8 +259,17 @@
     return Math.max(low, Math.min(high, value));
   }
 
+  function visualDensity() {
+    return tuning.density;
+  }
+
   function lerp(a, b, amount) {
     return a + (b - a) * amount;
+  }
+
+  function smoothstep(amount) {
+    var value = clamp(amount, 0, 1);
+    return value * value * (3 - 2 * value);
   }
 
   function waterlineY() {
@@ -107,15 +284,25 @@
     return screenX + cameraX;
   }
 
+  function activeWorldLeft() {
+    return Math.min(WORLD_WRAP_LEFT, screenToWorldX(-96));
+  }
+
+  function activeWorldRight() {
+    return Math.max(WORLD_WRAP_RIGHT, screenToWorldX(width + 96));
+  }
+
   function wrapWorldX(worldX) {
-    var span = WORLD_WRAP_RIGHT - WORLD_WRAP_LEFT;
-    return ((worldX - WORLD_WRAP_LEFT) % span + span) % span + WORLD_WRAP_LEFT;
+    var left = activeWorldLeft();
+    var right = activeWorldRight();
+    var span = right - left;
+    return ((worldX - left) % span + span) % span + left;
   }
 
   function platformGeometry() {
     var line = waterlineY();
-    var left = worldToScreenX(PLATFORM_WORLD_LEFT);
-    var right = worldToScreenX(PLATFORM_WORLD_LEFT + PLATFORM_WORLD_WIDTH);
+    var left = width - PLATFORM_VISIBLE_WIDTH;
+    var right = left + PLATFORM_WORLD_WIDTH;
     var deck = line - 36;
     var pylonCount = Math.floor(PLATFORM_WORLD_WIDTH / 17) + 1;
     var pylons = [];
@@ -131,6 +318,716 @@
       foundationTop: line + 66,
       foundationBottom: line + 92
     };
+  }
+
+  function renderGlossary() {
+    if (!glossaryList) return;
+    var groups = [];
+    BESTIARY.forEach(function (entry) {
+      if (groups.indexOf(entry.group) < 0) groups.push(entry.group);
+    });
+    groups.forEach(function (groupName) {
+      var group = document.createElement("section");
+      group.className = "glossary-group";
+      var heading = document.createElement("h2");
+      heading.textContent = groupName.toUpperCase();
+      group.appendChild(heading);
+      BESTIARY.forEach(function (entry) {
+        if (entry.group !== groupName) return;
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "glossary-entry";
+        button.dataset.entryId = entry.id;
+
+        var id = document.createElement("span");
+        id.className = "entry-id";
+        id.textContent = entry.id;
+        var name = document.createElement("span");
+        name.className = "entry-name";
+        name.textContent = entry.name;
+        var origin = document.createElement("span");
+        origin.className = "entry-origin " + entry.origin.toLowerCase();
+        origin.textContent = entry.origin + (isCountableObservation(entry.id) && observationCounts[entry.id]
+          ? " · SEEN " + observationCounts[entry.id]
+          : "");
+        var summary = document.createElement("span");
+        summary.className = "entry-summary";
+        summary.textContent = entry.summary;
+
+        button.appendChild(id);
+        button.appendChild(name);
+        button.appendChild(origin);
+        button.appendChild(summary);
+        var excerpts = entry.excerpts || (entry.excerpt ? [{ text: entry.excerpt, source: entry.source }] : []);
+        excerpts.forEach(function (passage) {
+          var excerpt = document.createElement("q");
+          excerpt.className = "entry-excerpt";
+          excerpt.textContent = passage.text;
+          var source = document.createElement("span");
+          source.className = "entry-source";
+          source.textContent = "BOOK TEXT · " + (passage.source || "Endymion");
+          button.appendChild(excerpt);
+          button.appendChild(source);
+        });
+        button.addEventListener("pointerenter", function () {
+          glossaryHoverId = entry.id;
+        });
+        button.addEventListener("pointerleave", function () {
+          if (glossaryHoverId === entry.id) glossaryHoverId = "";
+        });
+        button.addEventListener("focus", function () {
+          glossaryHoverId = entry.id;
+        });
+        button.addEventListener("blur", function () {
+          if (glossaryHoverId === entry.id) glossaryHoverId = "";
+        });
+        button.addEventListener("click", function () {
+          var label = entry.id + " — " + entry.name;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(label).then(function () {
+              glossaryCopyStatus.textContent = "COPIED " + label;
+            }, function () {
+              glossaryCopyStatus.textContent = label;
+            });
+          } else {
+            glossaryCopyStatus.textContent = label;
+          }
+        });
+        group.appendChild(button);
+      });
+      glossaryList.appendChild(group);
+    });
+  }
+
+  function setGlossaryOpen(nextOpen) {
+    glossaryOpen = !!nextOpen;
+    if (glossaryPanel) glossaryPanel.hidden = !glossaryOpen;
+    if (glossaryToggle) glossaryToggle.setAttribute("aria-expanded", String(glossaryOpen));
+    if (glossaryOpen) {
+      shell.classList.remove("ui-hidden");
+      window.clearTimeout(uiTimer);
+      var closeButton = glossaryPanel && glossaryPanel.querySelector("[data-glossary-close]");
+      if (closeButton) closeButton.focus({ preventScroll: true });
+    } else {
+      glossaryHoverId = "";
+      if (glossaryPinned) setGlossaryPinned(false);
+      if (glossaryCopyStatus) glossaryCopyStatus.textContent = "";
+      showInterface();
+    }
+  }
+
+  function setGlossaryPinned(nextPinned) {
+    glossaryPinned = !!nextPinned;
+    if (glossaryPanel) glossaryPanel.classList.toggle("is-pinned", glossaryPinned);
+    if (glossaryPin) {
+      glossaryPin.setAttribute("aria-pressed", String(glossaryPinned));
+      glossaryPin.textContent = glossaryPinned ? "PINNED" : "PIN";
+    }
+    try {
+      if (glossaryPinned) window.localStorage.setItem("mare-glossary-pinned", "1");
+      else window.localStorage.removeItem("mare-glossary-pinned");
+    } catch (error) {
+      // Persistence is optional in private or restricted browsing contexts.
+    }
+    if (glossaryPinned && !glossaryOpen) setGlossaryOpen(true);
+  }
+
+  function setWelcomeOpen(nextOpen, remember) {
+    if (!welcome) return;
+    var opening = !!nextOpen;
+    welcome.hidden = !opening;
+    shell.classList.toggle("welcome-open", opening);
+    if (opening) {
+      welcomePreviouslyFocused = document.activeElement;
+      window.clearTimeout(uiTimer);
+      if (welcomeEnter) welcomeEnter.focus({ preventScroll: true });
+    } else {
+      if (remember) {
+        try {
+          window.localStorage.setItem("mare-welcome-seen-v1", "1");
+        } catch (error) {
+          // The introduction still works when storage is unavailable.
+        }
+      }
+      if (welcomePreviouslyFocused && welcomePreviouslyFocused.focus) {
+        welcomePreviouslyFocused.focus({ preventScroll: true });
+      }
+      welcomePreviouslyFocused = null;
+      showInterface();
+    }
+  }
+
+  function pointToSegmentDistance(px, py, ax, ay, bx, by) {
+    var dx = bx - ax;
+    var dy = by - ay;
+    var length2 = dx * dx + dy * dy;
+    if (length2 <= 0.0001) return Math.sqrt((px - ax) * (px - ax) + (py - ay) * (py - ay));
+    var amount = clamp(((px - ax) * dx + (py - ay) * dy) / length2, 0, 1);
+    var nearestX = ax + dx * amount;
+    var nearestY = ay + dy * amount;
+    return Math.sqrt((px - nearestX) * (px - nearestX) + (py - nearestY) * (py - nearestY));
+  }
+
+  function planetPosition(time) {
+    var orbitTop = -112;
+    var orbitBottom = 224;
+    var orbitTravel = (143 + time * 0.14) % (orbitBottom - orbitTop);
+    return {
+      x: Math.floor(worldToScreenX(94 - (orbitTravel - 143) * 0.18)),
+      y: orbitTop + orbitTravel,
+      radius: 94
+    };
+  }
+
+  function swimmerInspectionId(kind) {
+    if (kind === "jelly") return "MI-11";
+    if (kind === "eel") return "MI-12";
+    if (kind === "ray") return "MI-13";
+    if (kind === "shark") return "MI-14";
+    if (kind === "hectapus") return "MI-15";
+    if (kind === "seaGiant") return "MI-16";
+    return "MI-10";
+  }
+
+  function ecologicalEventInspectionId(type) {
+    if (type === "jellyBloom") return "MI-50";
+    if (type === "migration") return "MI-51";
+    if (type === "feedingFrenzy") return "MI-52";
+    if (type === "deepQuiet") return "MI-53";
+    if (type === "distantBreach") return "MI-54";
+    if (type === "shadowPassage") return "MI-55";
+    return "";
+  }
+
+  function ecologicalEventTypeForInspection(id) {
+    if (id === "MI-50") return "jellyBloom";
+    if (id === "MI-51") return "migration";
+    if (id === "MI-52") return "feedingFrenzy";
+    if (id === "MI-53") return "deepQuiet";
+    if (id === "MI-54") return "distantBreach";
+    if (id === "MI-55") return "shadowPassage";
+    return "";
+  }
+
+  function inspectionSubjectAt(x, y, time, targetId) {
+    if (targetId >= "MI-10" && targetId <= "MI-16") {
+      for (var swimmerIndex = swimmers.length - 1; swimmerIndex >= 0; swimmerIndex -= 1) {
+        var swimmer = swimmers[swimmerIndex];
+        if (swimmerInspectionId(swimmer.kind) !== targetId) continue;
+        if (swimmerPixelContains(swimmer, x, y, time)) return swimmer;
+      }
+    }
+    if (targetId === "MI-17") {
+      for (var leviathanIndex = leviathans.length - 1; leviathanIndex >= 0; leviathanIndex -= 1) {
+        var leviathan = leviathans[leviathanIndex];
+        var leviathanX = (x - leviathan.x) / Math.max(1, 61 * leviathan.scale);
+        var leviathanY = (y - leviathan.y) / Math.max(1, 19 * leviathan.scale);
+        if (leviathanX * leviathanX + leviathanY * leviathanY <= 1) return leviathan;
+      }
+    }
+    if (targetId === "MI-18") {
+      var activeColossal = activeColossalEncounter(time, platformGeometry().line);
+      if (activeColossal) return activeColossal.encounter;
+    }
+    return null;
+  }
+
+  function observationKey(targetId, subject) {
+    if (!subject) return targetId;
+    if (Number.isFinite(subject.seed)) return targetId + ":" + subject.seed.toFixed(6);
+    if (Number.isFinite(subject.phase)) return targetId + ":" + subject.phase.toFixed(4);
+    return targetId;
+  }
+
+  function isCountableObservation(targetId, subject) {
+    var creatureEntry = targetId >= "MI-10" && targetId <= "MI-18";
+    return creatureEntry && (subject !== undefined ? !!subject : true);
+  }
+
+  function saveObservations() {
+    try {
+      window.localStorage.setItem("mare-observations-v1", JSON.stringify({
+        counts: observationCounts,
+        subjects: observedSubjects
+      }));
+    } catch (error) {
+      // Observation history is optional in private or restricted browsing contexts.
+    }
+  }
+
+  function recordObservation(targetId, subject) {
+    var key = observationKey(targetId, subject);
+    if (!isCountableObservation(targetId, subject)) return key;
+    if (observedSubjects[key]) return key;
+    observedSubjects[key] = 1;
+    observationCounts[targetId] = (observationCounts[targetId] || 0) + 1;
+    var entryButton = glossaryList && glossaryList.querySelector('[data-entry-id="' + targetId + '"]');
+    var origin = entryButton && entryButton.querySelector(".entry-origin");
+    var entry = BESTIARY_BY_ID[targetId];
+    if (origin && entry) origin.textContent = entry.origin + " · SEEN " + observationCounts[targetId];
+    saveObservations();
+    return key;
+  }
+
+  function observationDetail(subject, geometry) {
+    if (!subject) return "";
+    var parts = [];
+    if (subject.behaviorName) parts.push(String(subject.behaviorName).toUpperCase());
+    else if (subject.behavior && subject.behavior.state) parts.push(String(subject.behavior.state).toUpperCase());
+    else if (subject.state) parts.push(String(subject.state).toUpperCase());
+    if (subject.ecology) {
+      if (subject.ecology.boldness > 0.72) parts.push("BOLD");
+      else if (subject.ecology.curiosity > 0.7) parts.push("CURIOUS");
+      else if (subject.ecology.sociability > 0.72) parts.push("SOCIAL");
+      else if (subject.ecology.boldness < 0.32) parts.push("SKITTISH");
+    }
+    if (subject.variation) {
+      if (subject.variation.ageClass === 0) parts.push("JUVENILE");
+      else if (subject.variation.ageClass === 2) parts.push("ELDER");
+      if (subject.variation.scarCount > 0) parts.push("SCARRED");
+    }
+    if (Number.isFinite(subject.y)) {
+      var depth = clamp((subject.y - geometry.line) / Math.max(1, height - geometry.line), 0, 1);
+      parts.push(Math.round(depth * 100) + "% DEPTH");
+    }
+    return parts.join(" · ");
+  }
+
+  function inspectionTargetAt(x, y, time) {
+    var geometry = platformGeometry();
+    var carpetWidth = 25;
+    if (x >= carpet.x - 2 && x <= carpet.x + carpetWidth + 17 && y >= carpet.y - 10 && y <= carpet.y + 7) {
+      return "MI-23";
+    }
+
+    var pose = raftPose();
+    var aeneaY = raftYAt(pose, -5) - 5;
+    var bettikY = raftYAt(pose, 7) - 5;
+    if (Math.abs(x - (pose.centerX - 5)) <= 4 && Math.abs(y - aeneaY) <= 7) return "MI-21";
+    if (Math.abs(x - (pose.centerX + 7)) <= 4 && Math.abs(y - bettikY) <= 7) return "MI-22";
+    if (x >= pose.centerX - 19 && x <= pose.centerX + 19 && y >= pose.centerY - 15 && y <= pose.centerY + 7) {
+      return "MI-20";
+    }
+
+    for (var swimmerIndex = swimmers.length - 1; swimmerIndex >= 0; swimmerIndex -= 1) {
+      var swimmer = swimmers[swimmerIndex];
+      if (swimmerPixelContains(swimmer, x, y, time)) {
+        return swimmerInspectionId(swimmer.kind);
+      }
+    }
+
+    for (var leviathanIndex = leviathans.length - 1; leviathanIndex >= 0; leviathanIndex -= 1) {
+      var leviathan = leviathans[leviathanIndex];
+      var leviathanX = (x - leviathan.x) / Math.max(1, 61 * leviathan.scale);
+      var leviathanY = (y - leviathan.y) / Math.max(1, 19 * leviathan.scale);
+      if (leviathanX * leviathanX + leviathanY * leviathanY <= 1) return "MI-17";
+    }
+
+    var activeColossal = activeColossalEncounter(time, geometry.line);
+    if (activeColossal) {
+      var colossalX = (x - activeColossal.state.x) / Math.max(1, 26 * activeColossal.state.scale);
+      var colossalY = (y - activeColossal.state.y) / Math.max(1, 12 * activeColossal.state.scale);
+      if (colossalX * colossalX + colossalY * colossalY <= 1.25) return "MI-18";
+    }
+
+    var backgroundTitan = activeBackgroundTitan(time, geometry.line);
+    if (backgroundTitan) {
+      var titanX = (x - backgroundTitan.state.x) / backgroundTitan.state.radiusX;
+      var titanY = (y - backgroundTitan.state.y) / backgroundTitan.state.radiusY;
+      if (titanX * titanX + titanY * titanY <= 1) return "MI-56";
+    }
+
+    if (mooring.initialized) {
+      if (Math.abs(x - mooring.buoyX) <= 6 && Math.abs(y - (mooring.buoyY - 2)) <= 9) return "MI-34";
+      for (var ropePoint = 1; ropePoint < mooring.points.length; ropePoint += 1) {
+        if (pointToSegmentDistance(
+          x, y,
+          mooring.points[ropePoint - 1].x, mooring.points[ropePoint - 1].y,
+          mooring.points[ropePoint].x, mooring.points[ropePoint].y
+        ) <= 3) return "MI-35";
+      }
+    }
+
+    // The arch owns its whole semantic aperture, not only its painted ring.
+    // This keeps inspection stable while the pointer crosses transparent sky
+    // or water inside the farcaster.
+    var portalX = Math.floor(worldToScreenX(48));
+    var portalY = geometry.line + 5;
+    var portalDX = (x - portalX) / 61;
+    var portalDY = (y - portalY) / 61;
+    if (portalDY >= -1.04 && portalDY <= 0.1 && portalDX * portalDX + portalDY * portalDY <= 1.08) {
+      return "MI-30";
+    }
+
+    if (debugFlow && y >= geometry.line) {
+      var tracerX = 12 + Math.round((x - 12) / 30) * 30;
+      var tracerY = geometry.line + 12 + Math.round((y - geometry.line - 12) / 30) * 30;
+      if (Math.abs(x - tracerX) <= 13 && Math.abs(y - tracerY) <= 13) return "MI-05";
+    }
+
+    for (var particleIndex = particles.length - 1; particleIndex >= 0; particleIndex -= 1) {
+      var particle = particles[particleIndex];
+      if (Math.abs(x - particle.x) <= 2.5 && Math.abs(y - particle.y) <= 2.5) {
+        return particle.kind === "bubble" ? "MI-04" : particle.kind === "silt" ? "MI-03" : "MI-02";
+      }
+    }
+
+    if (ecologyEvent && ecologyEvent.active) {
+      var eventId = ecologicalEventInspectionId(ecologyEvent.type);
+      var eventX = ecologyEvent.x * width;
+      var eventY = geometry.line + ecologyEvent.depth * Math.max(20, height - geometry.line);
+      if (ecologyEvent.type === "shadowPassage") {
+        var eventTravel = ecologyEvent.direction > 0 ? ecologyEvent.phase : 1 - ecologyEvent.phase;
+        eventX = lerp(-90, width + 90, eventTravel);
+        if (Math.abs(x - eventX) < 86 && Math.abs(y - eventY) < 26) return eventId;
+      } else if (ecologyEvent.type === "distantBreach") {
+        if (Math.abs(x - eventX) < 34 && y >= geometry.line - 42 && y <= geometry.line + 8) return eventId;
+      } else if (ecologyEvent.type === "migration") {
+        if (Math.abs(y - eventY) < 24) return eventId;
+      } else if (ecologyEvent.type === "deepQuiet") {
+        if (y > geometry.line + 18) return eventId;
+      } else if (Math.abs(x - eventX) < 74 && Math.abs(y - eventY) < 58) {
+        return eventId;
+      }
+    }
+
+    if (x >= geometry.left - 5 && x <= geometry.right) {
+      var occupantCount = platformResidentCount();
+      var platformShiftX = Math.round(structure.sway);
+      var platformShiftY = Math.round(structure.sag);
+      var occupantPose = {};
+      for (var occupantIndex = 0; occupantIndex < occupantCount; occupantIndex += 1) {
+        platformResidentPose(occupantIndex, time, geometry, occupantPose);
+        var occupantX = occupantPose.x + platformShiftX;
+        var occupantY = occupantPose.deck + platformShiftY - 3;
+        if (Math.abs(x - occupantX) <= 3 && Math.abs(y - occupantY) <= 7) return "MI-36";
+      }
+      if (y >= geometry.foundationTop - 2 && y <= geometry.foundationBottom + 24) return "MI-33";
+      for (var pylonIndex = 0; pylonIndex < geometry.pylons.length; pylonIndex += 1) {
+        if (
+          Math.abs(x - geometry.pylons[pylonIndex]) <= 5 &&
+          y >= geometry.deck && y <= geometry.foundationTop + 2
+        ) return "MI-32";
+      }
+      if (y >= geometry.deck - 100 && y <= geometry.line + 3) return "MI-31";
+    }
+
+    var localSurface = surfaceY(x, time, geometry.line, raft.x);
+    if (Math.abs(y - localSurface) <= 6) return "MI-01";
+    if (y >= geometry.line) return "MI-00";
+    var planet = planetPosition(time);
+    var planetDx = x - planet.x;
+    var planetDy = y - planet.y;
+    if (planetDx * planetDx + planetDy * planetDy <= planet.radius * planet.radius) return "MI-40";
+    if (environment.storm > 0.32) return "MI-41";
+    return "";
+  }
+
+  function hideInspector() {
+    inspectTargetId = "";
+    inspectSubjectKey = "";
+    if (inspectTooltip) inspectTooltip.hidden = true;
+  }
+
+  function updateInspector(time) {
+    if (!inspectHeld || !pointer.inside) {
+      hideInspector();
+      return;
+    }
+    var targetId = inspectionTargetAt(pointer.x, pointer.y, time);
+    var entry = BESTIARY_BY_ID[targetId];
+    if (!entry) {
+      hideInspector();
+      return;
+    }
+    var subject = inspectionSubjectAt(pointer.x, pointer.y, time, targetId);
+    var subjectKey = recordObservation(targetId, subject);
+    if (inspectTargetId !== targetId || inspectSubjectKey !== subjectKey) {
+      inspectTargetId = targetId;
+      inspectSubjectKey = subjectKey;
+      inspectId.textContent = entry.id + " · " + entry.origin;
+      inspectName.textContent = entry.name;
+      var detail = observationDetail(subject, platformGeometry());
+      inspectSummary.textContent = detail ? detail + " — " + entry.summary : entry.summary;
+    }
+    var tooltipWidth = 244;
+    var tooltipHeight = 96;
+    var left = pointer.clientX + 16;
+    var top = pointer.clientY + 16;
+    if (left + tooltipWidth > window.innerWidth - 10) left = pointer.clientX - tooltipWidth - 16;
+    if (top + tooltipHeight > window.innerHeight - 10) top = pointer.clientY - tooltipHeight - 16;
+    inspectTooltip.style.left = Math.max(10, left) + "px";
+    inspectTooltip.style.top = Math.max(10, top) + "px";
+    inspectTooltip.hidden = false;
+  }
+
+  function drawInspectionPerson(id, time) {
+    var pose = raftPose();
+    if (id === "MI-21") {
+      drawPerson(pose.centerX - 5, raftYAt(pose, -5) - 1, time * 0.82, "#ffffff", 1, "guest");
+    } else if (id === "MI-22") {
+      drawPerson(pose.centerX + 7, raftYAt(pose, 7) - 1, time * 0.72 + 2, "#ffffff", -1, "worker");
+    }
+  }
+
+  function drawInspectionOccupants(time, geometry) {
+    ctx.save();
+    ctx.translate(Math.round(structure.sway), Math.round(structure.sag));
+    var occupantCount = platformResidentCount();
+    var pose = {};
+    for (var i = 0; i < occupantCount; i += 1) {
+      platformResidentPose(i, time, geometry, pose);
+      drawPerson(
+        pose.x,
+        pose.deck,
+        pose.phase,
+        "#ffffff",
+        pose.direction,
+        pose.role,
+        pose.action
+      );
+    }
+    ctx.restore();
+  }
+
+  function drawInspectionPylons(geometry) {
+    for (var i = 0; i < geometry.pylons.length; i += 1) {
+      var x = Math.floor(geometry.pylons[i]);
+      var topX = x + structure.sway;
+      var topY = geometry.deck + structure.sag;
+      pixelLine(topX, topY, x, geometry.foundationTop + 4, "#ffffff", 7);
+      for (var y = geometry.line + 10; y < geometry.foundationTop; y += 12) {
+        var rungAmount = (y - geometry.line) / Math.max(1, geometry.foundationTop - geometry.line);
+        var rungX = lerp(topX, x, rungAmount);
+        pixelRect(rungX - 2, y, 6, 1, "#ffffff");
+      }
+    }
+  }
+
+  function drawInspectionBuoy() {
+    if (!mooring.initialized) return;
+    drawPixelMask(
+      mooring.buoyX - 3,
+      mooring.buoyY - 3,
+      ["   1   ", " 11111 ", "11   11", " 11111 ", "  111  ", "   1   "],
+      { "1": "#ffffff" },
+      false
+    );
+    pixelLine(mooring.buoyX, mooring.buoyY - 3, mooring.buoyX, mooring.buoyY - 8, "#ffffff", 1);
+  }
+
+  function swimmerKindForInspection(id) {
+    if (id === "MI-11") return "jelly";
+    if (id === "MI-12") return "eel";
+    if (id === "MI-13") return "ray";
+    if (id === "MI-14") return "shark";
+    if (id === "MI-15") return "hectapus";
+    if (id === "MI-16") return "seaGiant";
+    return "fish";
+  }
+
+  function drawInspectionMask(id, time, geometry) {
+    inspectMaskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    inspectMaskCtx.clearRect(0, 0, width, height);
+    inspectMaskCtx.globalAlpha = 1;
+    var sceneCtx = ctx;
+    ctx = inspectMaskCtx;
+    try {
+      if (id === "MI-40") {
+        drawPlanet(time, INSPECTION_MASK_PALETTE);
+        ctx.clearRect(0, geometry.line, width, height - geometry.line);
+      }
+      else if (id === "MI-30") drawPortal(time, INSPECTION_MASK_PALETTE, geometry.line);
+      else if (id === "MI-23") drawCarpet(time, INSPECTION_MASK_PALETTE, geometry.line);
+      else if (id === "MI-20") {
+        drawRaftUnder(INSPECTION_MASK_PALETTE);
+        drawRaftAbove(time, INSPECTION_MASK_PALETTE);
+      } else if (id === "MI-21" || id === "MI-22") drawInspectionPerson(id, time);
+      else if (id === "MI-18") drawColossalEncounters(time, INSPECTION_MASK_PALETTE, geometry.line);
+      else if (id === "MI-17") drawLeviathans(time, INSPECTION_MASK_PALETTE);
+      else if (id >= "MI-10" && id <= "MI-16") {
+        drawSwimmers(time, INSPECTION_MASK_PALETTE, swimmerKindForInspection(id));
+      } else if (id === "MI-34") drawInspectionBuoy();
+      else if (id === "MI-35") drawMooringUnder(INSPECTION_MASK_PALETTE);
+      else if (id === "MI-36") drawInspectionOccupants(time, geometry);
+      else if (id === "MI-32") drawInspectionPylons(geometry);
+      else if (id === "MI-33") drawSubstructure(time, INSPECTION_MASK_PALETTE, geometry);
+      else if (id === "MI-31") drawPlatform(time, INSPECTION_MASK_PALETTE, geometry);
+      else if (id === "MI-01") drawSurface(time, INSPECTION_MASK_PALETTE, geometry.line, raft.x);
+      else if (id === "MI-02") drawParticles(INSPECTION_MASK_PALETTE, "plankton");
+      else if (id === "MI-03") drawParticles(INSPECTION_MASK_PALETTE, "silt");
+      else if (id === "MI-04") drawParticles(INSPECTION_MASK_PALETTE, "bubble");
+      else if (id === "MI-05") drawFluidDebug(time, INSPECTION_MASK_PALETTE);
+      else if (id === "MI-41") {
+        drawWeather(time, INSPECTION_MASK_PALETTE, geometry.line);
+        ctx.clearRect(0, geometry.line, width, height - geometry.line);
+      } else if (id === "MI-56") {
+        drawBackgroundTitans(time, INSPECTION_MASK_PALETTE, geometry.line);
+      } else if (id >= "MI-50" && id <= "MI-55") {
+        drawRareEcology(time, INSPECTION_MASK_PALETTE, geometry, ecologicalEventTypeForInspection(id));
+      }
+    } finally {
+      inspectMaskCtx.globalAlpha = 1;
+      ctx = sceneCtx;
+    }
+  }
+
+  function drawInspectionSubjectMask(id, time, geometry, subject) {
+    var supported = id === "MI-30" || id === "MI-17" || id === "MI-18" ||
+      (id >= "MI-10" && id <= "MI-16");
+    if (!supported) return false;
+    inspectMaskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    inspectMaskCtx.clearRect(0, 0, width, height);
+    inspectMaskCtx.globalAlpha = 1;
+    var sceneCtx = ctx;
+    ctx = inspectMaskCtx;
+    try {
+      if (id === "MI-30") {
+        drawPortal(time, INSPECTION_MASK_PALETTE, geometry.line);
+        return true;
+      }
+      if (!subject) return false;
+      if (id >= "MI-10" && id <= "MI-16") {
+        drawVariedSwimmer(subject, time, INSPECTION_MASK_PALETTE);
+        return true;
+      }
+      if (id === "MI-17") {
+        drawLeviathanActor(time, INSPECTION_MASK_PALETTE, subject, leviathans.indexOf(subject), true);
+        return true;
+      }
+      if (id === "MI-18") {
+        var active = activeColossalEncounter(time, geometry.line);
+        if (!active) return false;
+        drawColossalEncounter(time, INSPECTION_MASK_PALETTE, geometry.line, active.encounter, active.index, true);
+        return true;
+      }
+    } finally {
+      inspectMaskCtx.globalAlpha = 1;
+      ctx = sceneCtx;
+    }
+    return false;
+  }
+
+  function inspectionSearchRadius(id) {
+    if (id === "MI-18") return 100;
+    if (id === "MI-31" || id === "MI-32" || id === "MI-33") return 34;
+    if (id === "MI-01" || id === "MI-05" || id === "MI-41") return 22;
+    if (id === "MI-17") return 42;
+    return 14;
+  }
+
+  function drawSeaInspectionHighlight(time, geometry) {
+    var palette = PALETTES[mode];
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    for (var x = 0; x < width; x += 1) {
+      pixelRect(x, Math.round(surfaceY(x, time, geometry.line, raft.x)), 1, 1, palette.foam);
+    }
+    ctx.restore();
+  }
+
+  function drawInspectionOutline(time) {
+    var outlineAll = !!glossaryHoverId;
+    if (!outlineAll && (!inspectHeld || !pointer.inside)) return;
+    var id = outlineAll ? glossaryHoverId : inspectionTargetAt(pointer.x, pointer.y, time);
+    if (!id) return;
+    var geometry = platformGeometry();
+    if (id === "MI-00") {
+      drawSeaInspectionHighlight(time, geometry);
+      return;
+    }
+    var subject = outlineAll ? null : inspectionSubjectAt(pointer.x, pointer.y, time, id);
+    var subjectMask = !outlineAll && drawInspectionSubjectMask(id, time, geometry, subject);
+    if (!subjectMask) drawInspectionMask(id, time, geometry);
+
+    var image = inspectMaskCtx.getImageData(0, 0, width, height);
+    var pixelCount = width * height;
+    var component = new Uint8Array(pixelCount);
+    if (outlineAll || subjectMask) {
+      for (var allIndex = 0; allIndex < pixelCount; allIndex += 1) {
+        if (image.data[allIndex * 4 + 3] >= 18) component[allIndex] = 1;
+      }
+    } else {
+      var seed = -1;
+      var nearestDistance2 = Infinity;
+      var maxDistance = inspectionSearchRadius(id);
+      for (var index = 0; index < pixelCount; index += 1) {
+        if (image.data[index * 4 + 3] < 18) continue;
+        var maskX = index % width;
+        var maskY = Math.floor(index / width);
+        var dx = maskX - pointer.x;
+        var dy = maskY - pointer.y;
+        var distance2 = dx * dx + dy * dy;
+        if (distance2 < nearestDistance2) {
+          nearestDistance2 = distance2;
+          seed = index;
+        }
+      }
+      if (seed < 0 || nearestDistance2 > maxDistance * maxDistance) return;
+
+      var queue = new Int32Array(pixelCount);
+      var head = 0;
+      var tail = 0;
+      component[seed] = 1;
+      queue[tail] = seed;
+      tail += 1;
+      while (head < tail) {
+        var current = queue[head];
+        head += 1;
+        var currentX = current % width;
+        var currentY = Math.floor(current / width);
+        for (var oy = -1; oy <= 1; oy += 1) {
+          for (var ox = -1; ox <= 1; ox += 1) {
+            if (ox === 0 && oy === 0) continue;
+            var nextX = currentX + ox;
+            var nextY = currentY + oy;
+            if (nextX < 0 || nextX >= width || nextY < 0 || nextY >= height) continue;
+            var next = nextY * width + nextX;
+            if (component[next] || image.data[next * 4 + 3] < 18) continue;
+            component[next] = 1;
+            queue[tail] = next;
+            tail += 1;
+          }
+        }
+      }
+    }
+
+    var innerOutline = new Uint8Array(pixelCount);
+    var outerOutline = new Uint8Array(pixelCount);
+    for (var componentIndex = 0; componentIndex < pixelCount; componentIndex += 1) {
+      if (!component[componentIndex]) continue;
+      var componentX = componentIndex % width;
+      var componentY = Math.floor(componentIndex / width);
+      var boundary = componentX === 0 || componentX === width - 1 || componentY === 0 || componentY === height - 1 ||
+        !component[componentIndex - 1] || !component[componentIndex + 1] ||
+        !component[componentIndex - width] || !component[componentIndex + width];
+      if (!boundary) continue;
+      for (var outlineY = -2; outlineY <= 2; outlineY += 1) {
+        for (var outlineX = -2; outlineX <= 2; outlineX += 1) {
+          var paintX = componentX + outlineX;
+          var paintY = componentY + outlineY;
+          if (paintX < 0 || paintX >= width || paintY < 0 || paintY >= height) continue;
+          var paintIndex = paintY * width + paintX;
+          if (component[paintIndex]) continue;
+          outerOutline[paintIndex] = 1;
+          if (Math.abs(outlineX) <= 1 && Math.abs(outlineY) <= 1) innerOutline[paintIndex] = 1;
+        }
+      }
+    }
+
+    var palette = PALETTES[mode];
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = palette.abyss;
+    for (var outer = 0; outer < pixelCount; outer += 1) {
+      if (outerOutline[outer]) ctx.fillRect(outer % width, Math.floor(outer / width), 1, 1);
+    }
+    ctx.globalAlpha = 0.96;
+    ctx.fillStyle = palette.foam;
+    for (var inner = 0; inner < pixelCount; inner += 1) {
+      if (innerOutline[inner]) ctx.fillRect(inner % width, Math.floor(inner / width), 1, 1);
+    }
+    ctx.restore();
   }
 
   function drawPixelDisc(cx, cy, radius, color) {
@@ -229,6 +1126,76 @@
     }
   }
 
+  function drawPixelMask(x, y, mask, colors, mirror) {
+    if (!mask || !mask.length) return;
+    var originX = Math.round(x);
+    var originY = Math.round(y);
+    for (var row = 0; row < mask.length; row += 1) {
+      var line = mask[row];
+      for (var col = 0; col < line.length; col += 1) {
+        var key = line[col];
+        if (key === " ") continue;
+        var color = colors[key];
+        if (!color) continue;
+        var drawX = mirror ? originX + line.length - 1 - col : originX + col;
+        pixelRect(drawX, originY + row, 1, 1, color);
+      }
+    }
+  }
+
+  function hexToRgb(hex) {
+    var value = hex.charAt(0) === "#" ? hex.slice(1) : hex;
+    return [
+      parseInt(value.slice(0, 2), 16),
+      parseInt(value.slice(2, 4), 16),
+      parseInt(value.slice(4, 6), 16)
+    ];
+  }
+
+  function buildWaterTexture(palette, line) {
+    var texture = document.createElement("canvas");
+    texture.width = width;
+    texture.height = height;
+    var textureContext = texture.getContext("2d", { alpha: true });
+    var image = textureContext.createImageData(width, height);
+    var colors = [palette.waterTop, palette.water, palette.waterDeep, palette.abyss].map(hexToRgb);
+    var stops = [0, 0.28, 0.64, 1];
+    var bayer = [
+      [0, 8, 2, 10],
+      [12, 4, 14, 6],
+      [3, 11, 1, 9],
+      [15, 7, 13, 5]
+    ];
+    var startY = Math.max(0, line);
+    var depthSpan = Math.max(1, height - startY);
+    for (var y = startY; y < height; y += 1) {
+      var depth = clamp((y - startY) / depthSpan, 0, 1);
+      for (var x = 0; x < width; x += 1) {
+        var worldPixelX = Math.round(screenToWorldX(x));
+        var ordered = (bayer[((y % 4) + 4) % 4][((worldPixelX % 4) + 4) % 4] + 0.5) / 16;
+        var organic = hash(worldPixelX * 17.13 + y * 31.71);
+        var texturedDepth = clamp(depth + (organic - 0.5) * 0.032 + (ordered - 0.5) * 0.014, 0, 1);
+        var quantizedDepth = Math.round(texturedDepth * 28) / 28;
+        var segment = quantizedDepth < stops[1] ? 0 : quantizedDepth < stops[2] ? 1 : 2;
+        var amount = (quantizedDepth - stops[segment]) /
+          Math.max(0.001, stops[segment + 1] - stops[segment]);
+        var rgb = [
+          Math.round(lerp(colors[segment][0], colors[segment + 1][0], amount)),
+          Math.round(lerp(colors[segment][1], colors[segment + 1][1], amount)),
+          Math.round(lerp(colors[segment][2], colors[segment + 1][2], amount))
+        ];
+        if (y < startY + 6) rgb = colors[0];
+        var index = (y * width + x) * 4;
+        image.data[index] = rgb[0];
+        image.data[index + 1] = rgb[1];
+        image.data[index + 2] = rgb[2];
+        image.data[index + 3] = 255;
+      }
+    }
+    textureContext.putImageData(image, 0, 0);
+    waterTexture = texture;
+  }
+
   function createSurface() {
     var cols = Math.ceil(width / SURFACE_CELL) + 2;
     surface = {
@@ -238,7 +1205,9 @@
       nextVelocity: new Float32Array(cols)
     };
     for (var col = 0; col < cols; col += 1) {
-      surface.height[col] = Math.sin(col * 0.085) * 0.8 + Math.sin(col * 0.031 + 1.8) * 0.55;
+      surface.height[col] = (
+        Math.sin(col * 0.085) * 0.58 + Math.sin(col * 0.031 + 1.8) * 0.34
+      ) * tuning.waveEnergy;
     }
   }
 
@@ -251,7 +1220,10 @@
   }
 
   function surfaceY(x, time, line, raftX) {
-    return line + environment.tide + sampleSurface(x);
+    var worldX = screenToWorldX(x);
+    var classicWave = Math.sin(worldX * 0.075 - time * 0.72) * 0.34 +
+      Math.sin(worldX * 0.031 - time * 0.31 + 1.4) * 0.16;
+    return line + environment.tide + sampleSurface(x) + classicWave * tuning.waveEnergy;
   }
 
   function disturbSurface(x, impulse, radius) {
@@ -296,7 +1268,8 @@
       var fluidLift = fluid && col * SURFACE_CELL < width
         ? sampleFluid(col * SURFACE_CELL, fluid.line + 2).y
         : 0;
-      var windWave = Math.sin(col * 0.37 + time * (0.7 + storm * 0.8)) * environment.wind * 0.035;
+      var windWave = Math.sin(col * 0.37 + time * (0.7 + storm * 0.8)) *
+        environment.wind * 0.035 * tuning.waveEnergy;
       surface.nextVelocity[col] = (
         surface.velocity[col] + (laplacian * 24 + fluidLift * 0.15 + windWave) * dt
       ) * Math.pow(0.986 - storm * 0.003, dt * 60);
@@ -306,57 +1279,198 @@
     surface.velocity.set(surface.nextVelocity);
     for (var x = 0; x < surface.cols; x += 1) {
       surface.height[x] += surface.velocity[x] * dt;
-      surface.height[x] = clamp(surface.height[x], -7.5, 7.5);
+      var surfaceLimit = 2.8 + storm * 4.7;
+      surface.height[x] = clamp(surface.height[x], -surfaceLimit, surfaceLimit);
     }
 
-    if (storm > 0.38) {
-      var rainCount = Math.floor(storm * width * dt * 0.025);
-      for (var drop = 0; drop < rainCount; drop += 1) {
-        var rainX = hash(Math.floor(time * 17) * 97 + drop * 19.1) * width;
-        disturbSurface(rainX, (hash(drop * 41 + time) - 0.5) * storm * 2.2, 5 + storm * 8);
+  }
+
+  function updateRain(dt, time, geometry) {
+    var storm = environment.storm;
+    if (storm > 0.24) {
+      rainSpawnAccumulator += dt * width * (0.012 + storm * 0.05);
+      while (rainSpawnAccumulator >= 1 && rainDrops.length < Math.ceil(width * 0.22)) {
+        rainSpawnAccumulator -= 1;
+        rainSeed += 1;
+        rainDrops.push({
+          x: hash(rainSeed * 17.31 + 2.8) * width,
+          y: -3 - hash(rainSeed * 31.7 + 9.4) * Math.max(8, geometry.line * 0.38),
+          vx: environment.wind * (0.16 + hash(rainSeed * 7.1) * 0.12),
+          vy: 42 + storm * 38 + hash(rainSeed * 11.9) * 12,
+          length: 2 + Math.round(storm * 2 + hash(rainSeed * 23.3)),
+          seed: rainSeed
+        });
+      }
+    } else {
+      rainSpawnAccumulator = Math.min(rainSpawnAccumulator, 0.5);
+    }
+    for (var drop = rainDrops.length - 1; drop >= 0; drop -= 1) {
+      var rain = rainDrops[drop];
+      rain.x += rain.vx * dt;
+      rain.y += rain.vy * dt;
+      var impactY = surfaceY(rain.x, time, geometry.line, raft.x);
+      if (rain.y + rain.length >= impactY) {
+        disturbSurface(rain.x, -0.045 - storm * 0.055, 3 + storm * 2);
+        rainSplashes.push({ x: rain.x, age: 0, life: 0.28 + hash(rain.seed * 3.7) * 0.14, seed: rain.seed });
+        rainDrops.splice(drop, 1);
+      } else if (rain.x > width + 8 || rain.y > height + 8) {
+        rainDrops.splice(drop, 1);
       }
     }
+    for (var splash = rainSplashes.length - 1; splash >= 0; splash -= 1) {
+      rainSplashes[splash].age += dt;
+      if (rainSplashes[splash].age >= rainSplashes[splash].life) rainSplashes.splice(splash, 1);
+    }
+  }
+
+  function drawRainDrops(palette) {
+    ctx.save();
+    ctx.globalAlpha = clamp(0.28 + environment.storm * 0.34, 0, 0.62);
+    for (var drop = 0; drop < rainDrops.length; drop += 1) {
+      var rain = rainDrops[drop];
+      var slant = clamp(rain.vx / Math.max(1, rain.vy) * rain.length, -0.7, 0.7);
+      pixelLine(rain.x - slant, rain.y - rain.length, rain.x, rain.y, palette.bubble, 1);
+    }
+    ctx.restore();
+  }
+
+  function drawRainSplashes(time, palette, geometry) {
+    ctx.save();
+    for (var splash = 0; splash < rainSplashes.length; splash += 1) {
+      var impact = rainSplashes[splash];
+      var progress = clamp(impact.age / impact.life, 0, 1);
+      var surface = Math.round(surfaceY(impact.x, time, geometry.line, raft.x));
+      var spread = 1 + Math.floor(progress * 3);
+      var lift = Math.max(0, Math.round(Math.sin(progress * Math.PI) * 2));
+      ctx.globalAlpha = (1 - progress) * 0.72;
+      pixelRect(impact.x - spread, surface - lift, 1, 1, palette.foam);
+      pixelRect(impact.x + spread, surface - Math.max(0, lift - 1), 1, 1, palette.foam);
+      if (progress < 0.34) pixelRect(impact.x, surface - 1, 1, 1, palette.bubble);
+    }
+    ctx.restore();
   }
 
   function createParticles() {
     var line = waterlineY();
     var geometry = platformGeometry();
-    var count = Math.min(3200, Math.floor((width * Math.max(1, height - line)) / 118));
+    var count = Math.min(
+      1600,
+      Math.floor((width * Math.max(1, height - line)) / 210 * tuning.seaLife * visualDensity())
+    );
     particles = [];
     for (var i = 0; i < count; i += 1) {
       var seed = hash(i + width * 7 + height * 13);
-      var kind = i % 19 === 0 ? "bubble" : i % 11 === 0 ? "silt" : "plankton";
-      var x = hash(i * 3.17 + 2) * width;
-      var y = line + 5 + hash(i * 5.31 + 8) * Math.max(4, height - line - 9);
-      for (var attempt = 0; attempt < 7 && isSolid(x, y, geometry); attempt += 1) {
-        x = hash(i * 7.91 + attempt * 17.3) * width;
-        y = line + 5 + hash(i * 11.27 + attempt * 23.1) * Math.max(4, height - line - 9);
-      }
-      particles.push({
-        x: x,
-        y: y,
+      var kind = i % 23 === 0 ? "bubble" : i % 13 === 0 ? "silt" : "plankton";
+      var particle = {
+        x: 0,
+        y: 0,
         vx: 0,
         vy: 0,
         seed: seed,
-        kind: kind
-      });
+        kind: kind,
+        cluster: Math.floor(hash(seed * 83.7) * 7)
+      };
+      placeParticle(particle, i, geometry, 0);
+      particles.push(particle);
     }
+  }
+
+  function placeParticle(particle, ordinal, geometry, timeSeed) {
+    var waterDepth = Math.max(12, height - geometry.line - 5);
+    var seedOffset = timeSeed * 0.00017;
+    if (particle.kind === "bubble") {
+      var ventIndex = Math.floor(hash(particle.seed * 71 + ordinal) * geometry.pylons.length);
+      var ventX = geometry.pylons[clamp(ventIndex, 0, geometry.pylons.length - 1)];
+      particle.x = ventX + (hash(particle.seed * 97 + seedOffset) - 0.5) * 9;
+      particle.y = geometry.line + waterDepth * (0.42 + hash(particle.seed * 103 + seedOffset) * 0.53);
+    } else if (particle.kind === "silt") {
+      var structureBias = hash(particle.seed * 109 + seedOffset);
+      particle.x = structureBias > 0.34
+        ? geometry.left - 30 + hash(particle.seed * 127 + seedOffset) * (geometry.right - geometry.left + 60)
+        : hash(particle.seed * 131 + seedOffset) * width;
+      particle.y = geometry.line + waterDepth * (0.72 + hash(particle.seed * 139 + seedOffset) * 0.25);
+    } else {
+      var bloomCount = Math.max(3, Math.ceil(width / 115));
+      var bloomIndex = particle.cluster % bloomCount;
+      var bloomX = (bloomIndex + 0.5) / bloomCount * width;
+      var bloomY = geometry.line + waterDepth * (0.2 + hash(bloomIndex * 17.7 + 4.1) * 0.43);
+      var bloomRadiusX = 16 + hash(bloomIndex * 29.3 + 2.8) * 26;
+      var bloomRadiusY = 8 + hash(bloomIndex * 31.1 + 9.4) * 19;
+      var cloudX = hash(particle.seed * 149 + seedOffset) + hash(particle.seed * 157 + seedOffset) - 1;
+      var cloudY = hash(particle.seed * 163 + seedOffset) + hash(particle.seed * 173 + seedOffset) - 1;
+      particle.x = bloomX + cloudX * bloomRadiusX;
+      particle.y = bloomY + cloudY * bloomRadiusY;
+    }
+    for (var attempt = 0; attempt < 7 && isSolid(particle.x, particle.y, geometry); attempt += 1) {
+      particle.x += (hash(particle.seed * 181 + attempt * 13.1) - 0.5) * 32;
+      particle.y = clamp(
+        particle.y + (hash(particle.seed * 191 + attempt * 17.7) - 0.5) * 24,
+        geometry.line + 5,
+        height - 5
+      );
+    }
+    particle.vx = 0;
+    particle.vy = 0;
+  }
+
+  function swimmerDepthPreference(kind, size, seed) {
+    var base = 0.23;
+    if (kind === "jelly") base = 0.3;
+    else if (kind === "eel") base = 0.42;
+    else if (kind === "shark") base = 0.48;
+    else if (kind === "ray") base = 0.56;
+    else if (kind === "hectapus") base = 0.66;
+    else if (kind === "seaGiant") base = 0.81;
+    var sizeDepth = clamp((size - 0.78) / 0.58, 0, 1) * 0.14;
+    return clamp(base + sizeDepth + (seed - 0.5) * 0.1, 0.12, 0.92);
   }
 
   function createSwimmers() {
     var line = waterlineY();
-    var count = clamp(Math.floor(width / 16), 18, 54);
+    var waterDepth = Math.max(24, height - line);
+    var depthFactor = Math.sqrt(clamp((height - line) / 154, 0.58, 2.2));
+    var count = clamp(Math.floor(width / 13 * depthFactor * tuning.seaLife * visualDensity()), 10, 210);
     swimmers = [];
     for (var i = 0; i < count; i += 1) {
-      swimmers.push({
-        x: hash(i * 7.3 + width) * width,
-        y: line + 18 + hash(i * 11.9 + height) * Math.max(20, (height - line) * 0.62),
+      var kind = i % 23 === 0
+        ? "seaGiant"
+        : i % 17 === 0
+          ? "hectapus"
+          : i % 11 === 0
+            ? "shark"
+            : i % 5 === 0
+              ? "jelly"
+              : i % 13 === 0
+                ? "ray"
+                : i % 7 === 0
+                  ? "eel"
+                  : "fish";
+      var swimmerSeed = hash(i * 23.7 + 3);
+      var swimmerSize = 0.78 + hash(i * 31.9 + 11) * 0.58;
+      var depthTarget = swimmerDepthPreference(kind, swimmerSize, swimmerSeed);
+      var schoolCount = Math.max(3, Math.ceil(width / 120));
+      var schoolId = Math.floor(i / 7) % schoolCount;
+      var swimmerX = kind === "fish"
+        ? (schoolId + 0.5) / schoolCount * width + (hash(i * 7.3 + width) - 0.5) * 34
+        : hash(i * 7.3 + width) * width;
+      var swimmer = {
+        x: swimmerX,
+        y: line + waterDepth * clamp(depthTarget + (hash(i * 11.9 + height) - 0.5) * 0.09, 0.1, 0.94),
         vx: (hash(i * 4.7) - 0.5) * 0.8,
         vy: (hash(i * 9.1) - 0.5) * 0.3,
         energy: 0.45 + hash(i * 17.3) * 0.5,
-        seed: hash(i * 23.7 + 3),
+        seed: swimmerSeed,
+        kind: kind,
+        size: swimmerSize,
+        depthTarget: depthTarget,
+        school: schoolId,
+        transitSchool: kind === "fish" && schoolId < 2,
+        transitDirection: schoolId % 2 === 0 ? 1 : -1,
         direction: 1
-      });
+      };
+      if (CreatureVariation) swimmer.variation = CreatureVariation.createTraits(kind, swimmerSeed, swimmerSize);
+      if (ecology) ecology.ensureAgent(swimmer, i, kind);
+      swimmers.push(swimmer);
     }
   }
 
@@ -377,6 +1491,221 @@
       y <= geometry.foundationBottom
     ) return true;
     return false;
+  }
+
+  var swimmerColliderScratch = { x: 4, y: 3 };
+
+  function swimmerCollisionExtents(swimmer, out) {
+    var extents = out || {};
+    var radiusX = swimmer.kind === "seaGiant" ? 12 :
+      swimmer.kind === "hectapus" || swimmer.kind === "shark" ? 8 :
+        swimmer.kind === "ray" || swimmer.kind === "eel" ? 6 :
+          swimmer.kind === "jelly" ? 5 : 4;
+    var radiusY = swimmer.kind === "seaGiant" ? 7 :
+      swimmer.kind === "hectapus" ? 8 :
+        swimmer.kind === "jelly" ? 7 :
+          swimmer.kind === "ray" ? 5 : 3;
+    if (CreatureVariation && swimmer.variation) {
+      var bounds = CreatureVariation.boundsFor(swimmer.variation, extents);
+      radiusX = Math.max(radiusX, Math.abs(bounds.left), Math.abs(bounds.right));
+      radiusY = Math.max(radiusY, Math.abs(bounds.top), Math.abs(bounds.bottom));
+    }
+    extents.x = Math.ceil(radiusX) + 1;
+    extents.y = Math.ceil(radiusY) + 1;
+    return extents;
+  }
+
+  function swimmerInspectionContains(swimmer, x, y) {
+    var extents = swimmerCollisionExtents(swimmer, swimmerColliderScratch);
+    var dx = (x - swimmer.x) / Math.max(1, extents.x + 2);
+    var dy = (y - swimmer.y) / Math.max(1, extents.y + 2);
+    return dx * dx + dy * dy <= 1;
+  }
+
+  function swimmerPixelContains(swimmer, x, y, time) {
+    if (!swimmerInspectionContains(swimmer, x, y)) return false;
+    inspectMaskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    inspectMaskCtx.clearRect(0, 0, width, height);
+    inspectMaskCtx.globalAlpha = 1;
+    var sceneCtx = ctx;
+    ctx = inspectMaskCtx;
+    try {
+      drawVariedSwimmer(swimmer, time, INSPECTION_MASK_PALETTE);
+    } finally {
+      inspectMaskCtx.globalAlpha = 1;
+      ctx = sceneCtx;
+    }
+    var sampleX = clamp(Math.round(x) - 1, 0, width - 1);
+    var sampleY = clamp(Math.round(y) - 1, 0, height - 1);
+    var sampleWidth = Math.min(3, width - sampleX);
+    var sampleHeight = Math.min(3, height - sampleY);
+    var pixels = inspectMaskCtx.getImageData(sampleX, sampleY, sampleWidth, sampleHeight).data;
+    for (var pixel = 3; pixel < pixels.length; pixel += 4) {
+      if (pixels[pixel] >= 18) return true;
+    }
+    return false;
+  }
+
+  function swimmerIntersectsRect(x, y, extents, left, top, right, bottom) {
+    return x + extents.x >= left && x - extents.x <= right &&
+      y + extents.y >= top && y - extents.y <= bottom;
+  }
+
+  function swimmerCollidesAt(swimmer, x, y, geometry) {
+    var extents = swimmerCollisionExtents(swimmer, swimmerColliderScratch);
+    var pylonTop = geometry.line + 2;
+    var pylonBottom = geometry.foundationTop + 2;
+    for (var i = 0; i < geometry.pylons.length; i += 1) {
+      var px = geometry.pylons[i];
+      if (swimmerIntersectsRect(x, y, extents, px - 2, pylonTop, px + 3, pylonBottom)) return true;
+    }
+    return swimmerIntersectsRect(
+      x, y, extents,
+      geometry.left - 5, geometry.foundationTop,
+      geometry.right, geometry.foundationBottom
+    );
+  }
+
+  function ejectSwimmerFromStructure(swimmer, geometry) {
+    var extents = swimmerCollisionExtents(swimmer, swimmerColliderScratch);
+    if (!swimmerCollidesAt(swimmer, swimmer.x, swimmer.y, geometry)) return false;
+    // Expanded pylon colliders overlap for larger animals. Treat the entire
+    // station obstruction as one envelope during depenetration so resolving
+    // one post can never place the animal directly inside its neighbor.
+    var targetLeft = Math.min(geometry.left - 5, geometry.pylons[0] - 2) - extents.x - 1;
+    var targetRight = Math.max(geometry.right, geometry.pylons[geometry.pylons.length - 1] + 3) + extents.x + 1;
+    var targetBottom = geometry.foundationBottom + extents.y + 1;
+    var leftDistance = Math.abs(swimmer.x - targetLeft);
+    var rightDistance = Math.abs(targetRight - swimmer.x);
+    var bottomDistance = Math.abs(targetBottom - swimmer.y);
+    var minimum = Math.min(leftDistance, rightDistance, bottomDistance);
+    if (minimum === leftDistance) {
+      swimmer.x = targetLeft;
+      swimmer.vx = -Math.max(0.12, Math.abs(swimmer.vx) * 0.35);
+    } else if (minimum === rightDistance) {
+      swimmer.x = targetRight;
+      swimmer.vx = Math.max(0.12, Math.abs(swimmer.vx) * 0.35);
+    } else {
+      swimmer.y = targetBottom;
+      swimmer.vy = Math.max(0.08, Math.abs(swimmer.vy) * 0.3);
+    }
+    return true;
+  }
+
+  function moveSwimmerAroundStructure(swimmer, nextX, nextY, geometry) {
+    ejectSwimmerFromStructure(swimmer, geometry);
+    if (!swimmerCollidesAt(swimmer, nextX, nextY, geometry)) {
+      swimmer.x = nextX;
+      swimmer.y = nextY;
+      return;
+    }
+    // Slide along the obstruction when one axis remains clear. Zeroing the
+    // blocked component avoids the frame-by-frame direction reversal that
+    // made embedded animals flicker.
+    if (!swimmerCollidesAt(swimmer, nextX, swimmer.y, geometry)) {
+      swimmer.x = nextX;
+      swimmer.vy *= 0.18;
+      return;
+    }
+    if (!swimmerCollidesAt(swimmer, swimmer.x, nextY, geometry)) {
+      swimmer.y = nextY;
+      swimmer.vx *= 0.18;
+      return;
+    }
+    swimmer.vx *= 0.12;
+    swimmer.vy *= 0.12;
+    ejectSwimmerFromStructure(swimmer, geometry);
+  }
+
+  function swimmerTentacleRoot(swimmer, index, count, out) {
+    var traits = swimmer.variation;
+    var across = count <= 1 ? 0 : index / (count - 1) * 2 - 1;
+    if (swimmer.kind === "jelly") {
+      out.x = swimmer.x + across * Math.max(2, traits.bodyLength * 0.34);
+      out.y = swimmer.y;
+    } else {
+      out.x = swimmer.x + across * Math.max(2, traits.bodyLength * 0.3);
+      out.y = swimmer.y + Math.max(1, traits.bodyHeight * 0.28);
+    }
+    return out;
+  }
+
+  function initializeSwimmerTentacles(swimmer) {
+    var traits = swimmer.variation;
+    var count = traits ? traits.tentacleCount : 0;
+    swimmer.tentacles = [];
+    var root = {};
+    for (var tentacle = 0; tentacle < count; tentacle += 1) {
+      swimmerTentacleRoot(swimmer, tentacle, count, root);
+      var segmentCount = swimmer.kind === "jelly" ? 7 : 6;
+      var segmentLength = Math.max(0.9, traits.tentacleLength / segmentCount);
+      var chain = { points: [], previous: [], segmentLength: segmentLength };
+      for (var point = 0; point <= segmentCount; point += 1) {
+        var seedWave = Math.sin(swimmer.seed * 41 + tentacle * 1.9 + point * 0.7) * point * 0.12;
+        var px = root.x + seedWave;
+        var py = root.y + point * segmentLength;
+        chain.points.push({ x: px, y: py });
+        chain.previous.push({ x: px, y: py });
+      }
+      swimmer.tentacles.push(chain);
+    }
+  }
+
+  function updateSwimmerTentacles(swimmer, dt, time) {
+    if (swimmer.kind !== "jelly" && swimmer.kind !== "hectapus") return;
+    var traits = swimmer.variation;
+    if (!traits) return;
+    if (!swimmer.tentacles || swimmer.tentacles.length !== traits.tentacleCount) {
+      initializeSwimmerTentacles(swimmer);
+    }
+    var root = {};
+    for (var tentacle = 0; tentacle < swimmer.tentacles.length; tentacle += 1) {
+      var chain = swimmer.tentacles[tentacle];
+      swimmerTentacleRoot(swimmer, tentacle, swimmer.tentacles.length, root);
+      var rootPoint = chain.points[0];
+      if (Math.abs(rootPoint.x - root.x) + Math.abs(rootPoint.y - root.y) > 48) {
+        initializeSwimmerTentacles(swimmer);
+        return;
+      }
+      rootPoint.x = root.x;
+      rootPoint.y = root.y;
+      chain.previous[0].x = root.x;
+      chain.previous[0].y = root.y;
+      for (var point = 1; point < chain.points.length; point += 1) {
+        var current = chain.points[point];
+        var previous = chain.previous[point];
+        var velocityX = (current.x - previous.x) * 0.925;
+        var velocityY = (current.y - previous.y) * 0.925;
+        previous.x = current.x;
+        previous.y = current.y;
+        var flow = sampleFluid(current.x, current.y);
+        var freedom = point / (chain.points.length - 1);
+        current.x += velocityX + flow.x * dt * 0.22 +
+          Math.sin(time * 0.24 + swimmer.seed * 37 + tentacle * 1.3 + freedom * 3.8) * 0.008 * freedom;
+        current.y += velocityY + (0.005 + flow.y * dt * 0.16) * freedom;
+      }
+      for (var constraint = 0; constraint < 3; constraint += 1) {
+        chain.points[0].x = root.x;
+        chain.points[0].y = root.y;
+        for (var segment = 1; segment < chain.points.length; segment += 1) {
+          var a = chain.points[segment - 1];
+          var b = chain.points[segment];
+          var dx = b.x - a.x;
+          var dy = b.y - a.y;
+          var distance = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
+          var correction = (distance - chain.segmentLength) / distance;
+          if (segment === 1) {
+            b.x -= dx * correction;
+            b.y -= dy * correction;
+          } else {
+            a.x += dx * correction * 0.5;
+            a.y += dy * correction * 0.5;
+            b.x -= dx * correction * 0.5;
+            b.y -= dy * correction * 0.5;
+          }
+        }
+      }
+    }
   }
 
   function fluidIndex(col, row) {
@@ -414,7 +1743,12 @@
         fluid.u[index] = 0.3;
         var depth = row / Math.max(1, rows - 1);
         fluid.nutrient[index] = 0.24 + depth * 0.58 + hash(col * 3.1 + row * 7.7) * 0.08;
-        fluid.plankton[index] = (1 - depth * 0.7) * (0.08 + hash(col * 5.3 + row * 11.9) * 0.12);
+        var simulationWorldX = screenToWorldX(worldX);
+        var bloomWaveA = Math.max(0, Math.sin(simulationWorldX * 0.035 + row * 0.17) * 0.5 + 0.5 - 0.48) / 0.52;
+        var bloomWaveB = Math.max(0, Math.sin(simulationWorldX * 0.017 - row * 0.23 + 2.1) * 0.5 + 0.5 - 0.62) / 0.38;
+        var bloomField = clamp(bloomWaveA * 0.7 + bloomWaveB * 0.55, 0, 1);
+        fluid.plankton[index] = (1 - depth * 0.72) *
+          (0.025 + bloomField * 0.24 + hash(col * 5.3 + row * 11.9) * 0.035);
         fluid.solid[index] = isSolid(worldX, worldY, geometry) ? 1 : 0;
       }
     }
@@ -586,8 +1920,88 @@
       var direction = pylon % 2 ? 1 : -1;
       injectFluid(geometry.pylons[pylon] + 5, geometry.line + 30, 0.02, direction * 0.025, 12, 0.006);
     }
-    injectFluid(actors.raftX - 12, geometry.line + 5, actors.raftVX * 0.08, actors.raftVY * 0.08, 22, 0.045);
-    injectFluid(actors.leviathanX - 28, actors.leviathanY, 0.04, Math.sin(time * 0.16) * 0.035, 46, 0.018);
+    injectFluid(actors.raftX - 10, geometry.line + 5, actors.raftVX * 0.06, actors.raftVY * 0.04, 18, 0);
+    for (var leviathanIndex = 0; leviathanIndex < actors.leviathans.length; leviathanIndex += 1) {
+      var leviathanActor = actors.leviathans[leviathanIndex];
+      injectFluid(
+        leviathanActor.x - leviathanActor.direction * 28 * leviathanActor.scale,
+        leviathanActor.y,
+        leviathanActor.direction * 0.032 * leviathanActor.scale,
+        Math.sin(time * 0.16 + leviathanActor.phase) * 0.035,
+        36 + 18 * leviathanActor.scale,
+        0.012 * leviathanActor.scale
+      );
+    }
+    for (var swimmerIndex = 0; swimmerIndex < actors.swimmers.length; swimmerIndex += 1) {
+      var swimmerActor = actors.swimmers[swimmerIndex];
+      var swimmerWake = swimmerWakeProfile(swimmerActor);
+      var wakeX = swimmerActor.x - swimmerActor.direction * swimmerWake.radius * 0.42;
+      injectFluid(
+        wakeX,
+        swimmerActor.y,
+        swimmerActor.vx * swimmerWake.force,
+        swimmerActor.vy * swimmerWake.force +
+          Math.sin(time * swimmerWake.pulseSpeed + swimmerActor.seed * 31) * swimmerWake.pulse,
+        swimmerWake.radius,
+        swimmerWake.dye
+      );
+    }
+    var activeColossal = activeColossalEncounter(time, geometry.line);
+    if (activeColossal) {
+      var colossal = activeColossal.state;
+      var colossalEncounter = activeColossal.encounter;
+      var colossalIndex = activeColossal.index;
+      injectFluid(
+        colossal.x,
+        colossal.y,
+        colossalEncounter.direction * 0.0055 * colossal.scale +
+          Math.sin(time * 0.12 + colossalIndex) * 0.0024 * colossal.scale,
+        Math.sin(time * 0.08 + colossalIndex) * 0.004,
+        Math.min(96, 20 + colossal.scale * 10),
+        0.003 + colossal.scale * 0.0007
+      );
+      var advanceX = colossal.x + colossalEncounter.direction * colossal.scale * 30;
+      injectFluid(
+        advanceX,
+        colossal.y,
+        colossalEncounter.direction * 0.0032 * colossal.scale,
+        Math.sin(time * 0.065 + colossalIndex * 1.7) * 0.0025,
+        Math.min(112, 42 + colossal.scale * 11),
+        0.0012
+      );
+    }
+    var backgroundTitan = activeBackgroundTitan(time, geometry.line);
+    if (backgroundTitan) {
+      injectFluid(
+        backgroundTitan.state.x,
+        backgroundTitan.state.y,
+        backgroundTitan.encounter.direction * 0.018,
+        Math.sin(time * 0.025 + backgroundTitan.index) * 0.004,
+        Math.min(130, backgroundTitan.state.radiusY * 1.25),
+        0.0015
+      );
+    }
+    if (ecologyEvent && ecologyEvent.active) {
+      var eventX = ecologyEvent.x * width;
+      var eventY = geometry.line + ecologyEvent.depth * Math.max(20, height - geometry.line);
+      if (ecologyEvent.type === "shadowPassage") {
+        var shadowTravel = ecologyEvent.direction > 0 ? ecologyEvent.phase : 1 - ecologyEvent.phase;
+        eventX = lerp(-90, width + 90, shadowTravel);
+        injectFluid(
+          eventX,
+          eventY,
+          ecologyEvent.direction * 0.11 * ecologyEvent.intensity,
+          Math.sin(time * 0.18) * 0.035 * ecologyEvent.intensity,
+          78,
+          0.006 * ecologyEvent.intensity
+        );
+      } else if (ecologyEvent.type === "distantBreach") {
+        injectFluid(eventX, geometry.line + 4, 0, 0.18 * ecologyEvent.intensity, 32, 0.01);
+        disturbSurface(eventX, -0.5 * ecologyEvent.intensity * dt, 28);
+      } else if (ecologyEvent.type === "feedingFrenzy") {
+        injectFluid(eventX, eventY, ecologyEvent.direction * 0.08, -0.04, 34, 0.004);
+      }
+    }
     if (environment.storm > 0.28) {
       injectFluid(
         hash(Math.floor(time * 2.2)) * width,
@@ -598,11 +2012,14 @@
         environment.storm * 0.006
       );
     }
-    var leviathanCell = sampleFluid(actors.leviathanX, actors.leviathanY);
-    if (leviathanCell.nutrient < 1.1) {
-      var lcol = clamp(Math.round(actors.leviathanX / FLUID_CELL), 0, fluid.cols - 1);
-      var lrow = clamp(Math.round((actors.leviathanY - fluid.line) / FLUID_CELL), 0, fluid.rows - 1);
-      fluid.nutrient[fluidIndex(lcol, lrow)] = clamp(fluid.nutrient[fluidIndex(lcol, lrow)] + dt * 0.08, 0, 1.3);
+    for (var nutrientIndex = 0; nutrientIndex < actors.leviathans.length; nutrientIndex += 1) {
+      var nutrientActor = actors.leviathans[nutrientIndex];
+      var leviathanCell = sampleFluid(nutrientActor.x, nutrientActor.y);
+      if (leviathanCell.nutrient < 1.1) {
+        var lcol = clamp(Math.round(nutrientActor.x / FLUID_CELL), 0, fluid.cols - 1);
+        var lrow = clamp(Math.round((nutrientActor.y - fluid.line) / FLUID_CELL), 0, fluid.rows - 1);
+        fluid.nutrient[fluidIndex(lcol, lrow)] = clamp(fluid.nutrient[fluidIndex(lcol, lrow)] + dt * 0.055, 0, 1.3);
+      }
     }
     projectFluid();
   }
@@ -612,6 +2029,56 @@
     flow.x += Math.sin(y * 0.025 + time * 0.12) * 0.025;
     flow.y += Math.sin(x * 0.018 - time * 0.14) * 0.018;
     return flow;
+  }
+
+  function swimmerWakeProfile(swimmer) {
+    var radius = 7;
+    var force = 0.018;
+    var pulse = 0.002;
+    var pulseSpeed = 0.9;
+    var dye = 0.0015;
+    if (swimmer.kind === "jelly") {
+      radius = 8;
+      force = 0.012;
+      pulse = 0.007;
+      pulseSpeed = 1.15;
+    } else if (swimmer.kind === "ray") {
+      radius = 11;
+      force = 0.022;
+      pulse = 0.004;
+      pulseSpeed = 0.42;
+    } else if (swimmer.kind === "eel") {
+      radius = 9;
+      force = 0.025;
+      pulse = 0.006;
+      pulseSpeed = 1.35;
+    } else if (swimmer.kind === "shark") {
+      radius = 14;
+      force = 0.029;
+      pulse = 0.003;
+      pulseSpeed = 0.55;
+      dye = 0.0025;
+    } else if (swimmer.kind === "hectapus") {
+      radius = 16;
+      force = 0.026;
+      pulse = 0.007;
+      pulseSpeed = 0.66;
+      dye = 0.003;
+    } else if (swimmer.kind === "seaGiant") {
+      radius = 25;
+      force = 0.042;
+      pulse = 0.008;
+      pulseSpeed = 0.2;
+      dye = 0.004;
+    }
+    var size = clamp(swimmer.size || 1, 0.7, 1.5);
+    return {
+      radius: radius * size,
+      force: force * size,
+      pulse: pulse * size,
+      pulseSpeed: pulseSpeed,
+      dye: dye * size
+    };
   }
 
   function depositSediment(x, amount) {
@@ -640,6 +2107,7 @@
   }
 
   function updateSwimmers(dt, time, geometry, actors) {
+    var activeColossalWarning = activeColossalEncounter(time, geometry.line);
     for (var i = 0; i < swimmers.length; i += 1) {
       var swimmer = swimmers[i];
       var sense = 13;
@@ -650,61 +2118,300 @@
       var flow = sampleFluid(swimmer.x, swimmer.y);
       var desiredX = (rightFood - leftFood) * 1.7 + (swimmer.seed - 0.48) * 0.12;
       var desiredY = (downFood - upFood) * 1.45 + Math.sin(time * 0.2 + swimmer.seed * 19) * 0.035;
-
-      var predatorX = swimmer.x - actors.leviathanX;
-      var predatorY = swimmer.y - actors.leviathanY;
-      var predatorDistance2 = predatorX * predatorX + predatorY * predatorY;
-      if (predatorDistance2 < 90 * 90 && predatorDistance2 > 1) {
-        var fear = (1 - Math.sqrt(predatorDistance2) / 90) * 2.4;
-        desiredX += predatorX / Math.sqrt(predatorDistance2) * fear;
-        desiredY += predatorY / Math.sqrt(predatorDistance2) * fear;
+      var maxSpeed = 1.45;
+      var movementScale = 7;
+      var feedingRate = 0.016;
+      if (swimmer.kind === "jelly") {
+        desiredX *= 0.24;
+        desiredY = Math.sin(time * 1.15 + swimmer.seed * 17) * 0.16;
+        maxSpeed = 0.58;
+        movementScale = 4.2;
+        feedingRate = 0.004;
+      } else if (swimmer.kind === "ray") {
+        desiredX *= 0.58;
+        desiredY += Math.sin(time * 0.35 + swimmer.seed * 11) * 0.08;
+        maxSpeed = 0.95;
+        movementScale = 5.5;
+        feedingRate = 0.011;
+      } else if (swimmer.kind === "eel") {
+        desiredX += Math.sin(time * 1.7 + swimmer.seed * 23) * 0.24;
+        desiredY += Math.cos(time * 1.2 + swimmer.seed * 29) * 0.12;
+        maxSpeed = 1.75;
+        movementScale = 8.2;
+        feedingRate = 0.013;
+      } else if (swimmer.kind === "shark") {
+        desiredX += swimmer.direction * 0.18;
+        desiredY *= 0.55;
+        maxSpeed = 1.9;
+        movementScale = 8.8;
+        feedingRate = 0.021;
+      } else if (swimmer.kind === "hectapus") {
+        desiredX *= 0.3;
+        desiredY += Math.sin(time * 0.72 + swimmer.seed * 21) * 0.07;
+        maxSpeed = 0.72;
+        movementScale = 4.8;
+        feedingRate = 0.018;
+      } else if (swimmer.kind === "seaGiant") {
+        desiredX *= 0.22;
+        desiredY += Math.sin(time * 0.19 + swimmer.seed * 15) * 0.03;
+        maxSpeed = 0.48;
+        movementScale = 3.5;
+        feedingRate = 0.026;
       }
 
-      swimmer.vx += (flow.x * 0.48 + desiredX - swimmer.vx) * dt * 1.7;
-      swimmer.vy += (flow.y * 0.48 + desiredY - swimmer.vy) * dt * 1.7;
+      if (swimmer.kind === "fish" && swimmer.transitSchool) {
+        var routeDepth = 0.26 + swimmer.school * 0.13;
+        var routeY = geometry.line + Math.max(24, height - geometry.line) * routeDepth;
+        desiredX += swimmer.transitDirection * 0.46;
+        desiredY += clamp((routeY - swimmer.y) * 0.018, -0.34, 0.34);
+        maxSpeed = Math.min(maxSpeed, 1.18);
+        movementScale = 6.2;
+      }
+
+      var behaviorSchoolingScale = 1;
+      var behaviorSeparationScale = 1;
+      var behaviorFlowScale = 1;
+      var behaviorDepthOffset = 0;
+      if (ecology) {
+        var threat = 0;
+        var threatDX = 0;
+        var threatDY = 0;
+        for (var ecologyPredator = 0; ecologyPredator < leviathans.length; ecologyPredator += 1) {
+          var ecologyLeviathan = leviathans[ecologyPredator];
+          var ecologyDx = swimmer.x - ecologyLeviathan.x;
+          var ecologyDy = swimmer.y - ecologyLeviathan.y;
+          var ecologyDistance = Math.sqrt(ecologyDx * ecologyDx + ecologyDy * ecologyDy);
+          var ecologyRadius = 76 + ecologyLeviathan.scale * 42;
+          if (ecologyDistance > 0.1 && ecologyDistance < ecologyRadius) {
+            var ecologyFear = 1 - ecologyDistance / ecologyRadius;
+            if (ecologyFear > threat) {
+              threat = ecologyFear;
+              threatDX = ecologyDx / ecologyDistance;
+              threatDY = ecologyDy / ecologyDistance;
+            }
+          }
+        }
+        if (swimmer.kind === "fish" || swimmer.kind === "jelly" || swimmer.kind === "ray") {
+          for (var ecologyHunter = 0; ecologyHunter < swimmers.length; ecologyHunter += 1) {
+            var hunter = swimmers[ecologyHunter];
+            if (hunter === swimmer || hunter.kind !== "shark") continue;
+            var hunterDx = swimmer.x - hunter.x;
+            var hunterDy = swimmer.y - hunter.y;
+            var hunterDistance = Math.sqrt(hunterDx * hunterDx + hunterDy * hunterDy);
+            if (hunterDistance > 0.1 && hunterDistance < 72) {
+              var hunterThreat = 1 - hunterDistance / 72;
+              if (hunterThreat > threat) {
+                threat = hunterThreat;
+                threatDX = hunterDx / hunterDistance;
+                threatDY = hunterDy / hunterDistance;
+              }
+            }
+          }
+        }
+        var curiosityDx = raft.x + 14 - swimmer.x;
+        var curiosityDy = raft.y - swimmer.y;
+        var curiosityDistance = Math.sqrt(curiosityDx * curiosityDx + curiosityDy * curiosityDy);
+        var curiosity = swimmer.kind === "shark" || swimmer.kind === "hectapus"
+          ? clamp(1 - curiosityDistance / 130, 0, 1)
+          : clamp(1 - curiosityDistance / 88, 0, 1) * 0.7;
+        var shelterTargetX = geometry.left - 10;
+        var shelterTargetY = geometry.line + Math.min(54, (height - geometry.line) * 0.35);
+        var shelterDx = shelterTargetX - swimmer.x;
+        var shelterDy = shelterTargetY - swimmer.y;
+        var shelterDistance = Math.sqrt(shelterDx * shelterDx + shelterDy * shelterDy);
+        var pointerDx = swimmer.x - pointer.x;
+        var pointerDy = swimmer.y - pointer.y;
+        var pointerDistance = Math.sqrt(pointerDx * pointerDx + pointerDy * pointerDy);
+        var disturbance = pointer.down && pointerDistance < 72 ? 1 - pointerDistance / 72 : 0;
+
+        ecologyContext.stableId = i;
+        ecologyContext.kind = swimmer.kind;
+        ecologyContext.energy = swimmer.energy;
+        ecologyContext.foodLevel = clamp((leftFood + rightFood + upFood + downFood) * 0.25, 0, 1.5);
+        ecologyContext.foodDX = clamp((rightFood - leftFood) * 4, -1, 1);
+        ecologyContext.foodDY = clamp((downFood - upFood) * 4, -1, 1);
+        ecologyContext.threat = threat;
+        ecologyContext.threatDX = threatDX;
+        ecologyContext.threatDY = threatDY;
+        ecologyContext.disturbance = disturbance;
+        ecologyContext.storm = environment.storm;
+        ecologyContext.curiosity = curiosity;
+        ecologyContext.curiosityDX = curiosityDistance > 0.1 ? curiosityDx / curiosityDistance : 0;
+        ecologyContext.curiosityDY = curiosityDistance > 0.1 ? curiosityDy / curiosityDistance : 0;
+        ecologyContext.shelter = clamp(1 - shelterDistance / 190, 0, 1);
+        ecologyContext.shelterDX = shelterDistance > 0.1 ? shelterDx / shelterDistance : 0;
+        ecologyContext.shelterDY = shelterDistance > 0.1 ? shelterDy / shelterDistance : 0;
+        ecology.stepAgent(swimmer, dt, time, ecologyContext, ecologySteering);
+        ecology.influenceFor(swimmer.kind, ecologyInfluence);
+        desiredX += ecologySteering.steerX;
+        desiredY += ecologySteering.steerY;
+        maxSpeed *= ecologySteering.speedScale;
+        feedingRate *= ecologySteering.feedingScale;
+        behaviorFlowScale = ecologySteering.flowScale;
+        behaviorSchoolingScale = ecologySteering.schoolingScale;
+        behaviorSeparationScale = ecologySteering.separationScale;
+        behaviorDepthOffset = ecologySteering.depthOffset;
+        swimmer.behaviorState = ecologySteering.state;
+        swimmer.behaviorName = ecologySteering.stateName;
+        swimmer.behaviorAnimationRate = ecologySteering.animationRate;
+        swimmer.behaviorGlowBoost = ecologySteering.glowBoost;
+        swimmer.eventVisibilityScale = ecologyInfluence.visibilityScale;
+      }
+
+      if (swimmer.kind === "fish") {
+        var schoolCount = 0;
+        var schoolCenterX = 0;
+        var schoolCenterY = 0;
+        var schoolVelocityX = 0;
+        var schoolVelocityY = 0;
+        var separateX = 0;
+        var separateY = 0;
+        for (var schoolmateIndex = 0; schoolmateIndex < swimmers.length; schoolmateIndex += 1) {
+          var schoolmate = swimmers[schoolmateIndex];
+          if (
+            schoolmate === swimmer ||
+            schoolmate.kind !== "fish" ||
+            schoolmate.school !== swimmer.school
+          ) continue;
+          var schoolDx = schoolmate.x - swimmer.x;
+          var schoolDy = schoolmate.y - swimmer.y;
+          var schoolDistance2 = schoolDx * schoolDx + schoolDy * schoolDy;
+          if (schoolDistance2 > 34 * 34) continue;
+          schoolCount += 1;
+          schoolCenterX += schoolmate.x;
+          schoolCenterY += schoolmate.y;
+          schoolVelocityX += schoolmate.vx;
+          schoolVelocityY += schoolmate.vy;
+          if (schoolDistance2 < 7 * 7 && schoolDistance2 > 0.2) {
+            separateX -= schoolDx / schoolDistance2;
+            separateY -= schoolDy / schoolDistance2;
+          }
+        }
+        if (schoolCount > 0) {
+          schoolCenterX /= schoolCount;
+          schoolCenterY /= schoolCount;
+          schoolVelocityX /= schoolCount;
+          schoolVelocityY /= schoolCount;
+          desiredX += ((schoolCenterX - swimmer.x) * 0.006 +
+            (schoolVelocityX - swimmer.vx) * 0.28) * behaviorSchoolingScale +
+            separateX * 2.6 * behaviorSeparationScale;
+          desiredY += ((schoolCenterY - swimmer.y) * 0.006 +
+            (schoolVelocityY - swimmer.vy) * 0.28) * behaviorSchoolingScale +
+            separateY * 2.6 * behaviorSeparationScale;
+        }
+      }
+
+      var nearestPrey = null;
+      var nearestPreyDistance2 = Infinity;
+      for (var otherIndex = 0; otherIndex < swimmers.length; otherIndex += 1) {
+        var other = swimmers[otherIndex];
+        if (other === swimmer) continue;
+        var otherDx = other.x - swimmer.x;
+        var otherDy = other.y - swimmer.y;
+        var otherDistance2 = otherDx * otherDx + otherDy * otherDy;
+        if (swimmer.kind === "shark" && other.kind === "fish" && otherDistance2 < nearestPreyDistance2) {
+          nearestPrey = other;
+          nearestPreyDistance2 = otherDistance2;
+        }
+        if (swimmer.kind === "fish" && other.kind === "shark" && otherDistance2 < 78 * 78 && otherDistance2 > 1) {
+          var sharkFear = (1 - Math.sqrt(otherDistance2) / 78) * 2.1;
+          desiredX -= otherDx / Math.sqrt(otherDistance2) * sharkFear;
+          desiredY -= otherDy / Math.sqrt(otherDistance2) * sharkFear;
+        }
+      }
+      if (nearestPrey && nearestPreyDistance2 < 118 * 118 && nearestPreyDistance2 > 1) {
+        var preyDistance = Math.sqrt(nearestPreyDistance2);
+        var huntDrive = 0.34 + (1 - preyDistance / 118) * 0.48;
+        desiredX += (nearestPrey.x - swimmer.x) / preyDistance * huntDrive;
+        desiredY += (nearestPrey.y - swimmer.y) / preyDistance * huntDrive;
+        if (preyDistance < 5 + swimmer.size * 2.5) {
+          nearestPrey.energy = 0;
+          swimmer.energy = clamp(swimmer.energy + 0.24, 0, 1.2);
+        }
+      }
+
+      if (activeColossalWarning) {
+        var warningEncounter = activeColossalWarning.encounter;
+        var warningState = activeColossalWarning.state;
+        var warningFrontX = warningState.x + warningEncounter.direction * warningState.scale * 25;
+        var warningDx = swimmer.x - warningFrontX;
+        var warningDy = swimmer.y - warningState.y;
+        var warningRadius = 62 + warningState.scale * 17;
+        var warningDistance2 = warningDx * warningDx + warningDy * warningDy;
+        if (warningDistance2 < warningRadius * warningRadius && warningDistance2 > 1) {
+          var warningDistance = Math.sqrt(warningDistance2);
+          var bodyWarning = (1 - warningDistance / warningRadius) *
+            (swimmer.kind === "fish" || swimmer.kind === "jelly" ? 1.45 : 0.62);
+          desiredX += warningDx / warningDistance * bodyWarning;
+          desiredY += warningDy / warningDistance * bodyWarning;
+        }
+      }
+
+      if (!Number.isFinite(swimmer.depthTarget)) {
+        swimmer.depthTarget = swimmerDepthPreference(swimmer.kind, swimmer.size, swimmer.seed);
+      }
+      var waterDepth = Math.max(24, height - geometry.line);
+      var depthPulse = Math.sin(time * (swimmer.kind === "jelly" ? 0.38 : 0.12) + swimmer.seed * 29);
+      var depthRoam = swimmer.kind === "fish" || swimmer.kind === "jelly" ? 0.055 : 0.025;
+      var preferredY = geometry.line + waterDepth * clamp(
+        swimmer.depthTarget + behaviorDepthOffset + depthPulse * depthRoam,
+        0.1,
+        0.94
+      );
+      var depthCorrection = clamp((preferredY - swimmer.y) * 0.014, -0.34, 0.34);
+      desiredY += depthCorrection;
+
+      for (var predator = 0; predator < actors.leviathans.length; predator += 1) {
+        var predatorActor = actors.leviathans[predator];
+        var predatorX = swimmer.x - predatorActor.x;
+        var predatorY = swimmer.y - predatorActor.y;
+        var fearRadius = 72 + predatorActor.scale * 38;
+        var predatorDistance2 = predatorX * predatorX + predatorY * predatorY;
+        if (predatorDistance2 < fearRadius * fearRadius && predatorDistance2 > 1) {
+          var fear = (1 - Math.sqrt(predatorDistance2) / fearRadius) * 2.4;
+          desiredX += predatorX / Math.sqrt(predatorDistance2) * fear;
+          desiredY += predatorY / Math.sqrt(predatorDistance2) * fear;
+        }
+      }
+
+      swimmer.vx += (flow.x * 0.48 * behaviorFlowScale + desiredX - swimmer.vx) * dt * 1.7;
+      swimmer.vy += (flow.y * 0.48 * behaviorFlowScale + desiredY - swimmer.vy) * dt * 1.7;
       var speed = Math.sqrt(swimmer.vx * swimmer.vx + swimmer.vy * swimmer.vy);
-      if (speed > 1.45) {
-        swimmer.vx *= 1.45 / speed;
-        swimmer.vy *= 1.45 / speed;
+      if (speed > maxSpeed) {
+        swimmer.vx *= maxSpeed / speed;
+        swimmer.vy *= maxSpeed / speed;
       }
-      var nextX = swimmer.x + swimmer.vx * dt * 7;
-      var nextY = swimmer.y + swimmer.vy * dt * 7;
-      if (isSolid(nextX, nextY, geometry)) {
-        swimmer.vx *= -0.8;
-        swimmer.vy *= -0.8;
-      } else {
-        swimmer.x = nextX;
-        swimmer.y = nextY;
-      }
+      var nextX = swimmer.x + swimmer.vx * dt * movementScale;
+      var nextY = swimmer.y + swimmer.vy * dt * movementScale;
+      moveSwimmerAroundStructure(swimmer, nextX, nextY, geometry);
       swimmer.direction = swimmer.vx >= 0 ? 1 : -1;
-      var eaten = consumePlankton(swimmer.x, swimmer.y, dt * 0.016);
+      var eaten = consumePlankton(swimmer.x, swimmer.y, dt * feedingRate);
       swimmer.energy = clamp(swimmer.energy + eaten * 1.9 - dt * 0.0035, 0, 1.2);
 
       var localSurface = surfaceY(swimmer.x, time, geometry.line, raft.x);
-      if (screenToWorldX(swimmer.x) > WORLD_WRAP_RIGHT) swimmer.x = worldToScreenX(WORLD_WRAP_LEFT);
-      if (screenToWorldX(swimmer.x) < WORLD_WRAP_LEFT) swimmer.x = worldToScreenX(WORLD_WRAP_RIGHT);
+      if (screenToWorldX(swimmer.x) > activeWorldRight()) swimmer.x = worldToScreenX(activeWorldLeft());
+      if (screenToWorldX(swimmer.x) < activeWorldLeft()) swimmer.x = worldToScreenX(activeWorldRight());
       if (swimmer.y < localSurface + 8) {
         swimmer.y = localSurface + 8;
         swimmer.vy = Math.abs(swimmer.vy);
       }
       if (swimmer.y > height - 5 || swimmer.energy <= 0.005) {
         swimmer.x = hash(swimmer.seed * 41 + time) * width;
-        swimmer.y = geometry.line + 18 + hash(swimmer.seed * 67 + time) * Math.max(20, (height - geometry.line) * 0.6);
+        swimmer.y = geometry.line + waterDepth * clamp(
+          swimmer.depthTarget + (hash(swimmer.seed * 67 + time) - 0.5) * 0.08,
+          0.1,
+          0.94
+        );
         swimmer.energy = 0.45;
+        ejectSwimmerFromStructure(swimmer, geometry);
       }
+      updateSwimmerTentacles(swimmer, dt, time);
     }
   }
 
   function respawnParticle(particle, geometry) {
     var now = performance.now();
-    particle.x = hash(particle.seed * 71 + now * 0.0001) * width;
-    particle.y = geometry.line + 8 + hash(particle.seed * 103 + now * 0.0002) * Math.max(8, height - geometry.line - 14);
-    for (var attempt = 0; attempt < 7 && isSolid(particle.x, particle.y, geometry); attempt += 1) {
-      particle.x = hash(particle.seed * 149 + now * 0.00013 + attempt * 7) * width;
-      particle.y = geometry.line + 8 + hash(particle.seed * 181 + now * 0.00017 + attempt * 13) * Math.max(8, height - geometry.line - 14);
-    }
-    particle.vx = 0;
-    particle.vy = 0;
+    placeParticle(particle, Math.floor(particle.seed * 10000), geometry, now);
   }
 
   function updateParticles(dt, time, geometry, actors) {
@@ -765,15 +2472,14 @@
           ripples.push({ x: particle.x, age: 0, amp: 0.55 + particle.seed * 0.55 });
           disturbSurface(particle.x, -0.34 - particle.seed * 0.24, 7);
         }
-        particle.y = height - 5 - hash(particle.seed + time) * Math.max(12, height * 0.22);
-        particle.x = hash(particle.seed * 97 + time) * width;
+        placeParticle(particle, i, geometry, time * 1000);
       } else if (particle.y <= localSurface + 2) {
         particle.y = localSurface + 3;
         particle.vy = Math.abs(particle.vy) * 0.2;
       }
 
-      if (screenToWorldX(particle.x) > WORLD_WRAP_RIGHT) particle.x = worldToScreenX(WORLD_WRAP_LEFT);
-      if (screenToWorldX(particle.x) < WORLD_WRAP_LEFT) particle.x = worldToScreenX(WORLD_WRAP_RIGHT);
+      if (screenToWorldX(particle.x) > activeWorldRight()) particle.x = worldToScreenX(activeWorldLeft());
+      if (screenToWorldX(particle.x) < activeWorldLeft()) particle.x = worldToScreenX(activeWorldRight());
       if (particle.y > height + 2) respawnParticle(particle, geometry);
     }
 
@@ -783,10 +2489,11 @@
     }
   }
 
-  function drawPlanet(palette) {
-    var radius = 94;
-    var cx = Math.floor(worldToScreenX(94));
-    var cy = 31;
+  function drawPlanet(time, palette) {
+    var planet = planetPosition(time);
+    var radius = planet.radius;
+    var cx = planet.x;
+    var cy = planet.y;
     drawPixelDisc(cx, cy, radius, palette.planetDark);
     drawPixelDisc(cx - 4, cy - 4, radius - 7, palette.planet);
     for (var i = 0; i < 24; i += 1) {
@@ -802,16 +2509,88 @@
     }
   }
 
-  function drawPerson(x, y, phase, color, direction) {
-    var step = Math.sin(phase) > 0 ? 1 : -1;
+  function drawPerson(x, y, phase, color, direction, role) {
+    var action = arguments.length > 6 ? arguments[6] : "walk";
+    var step = action === "walk" && Math.sin(phase) > 0 ? 1 : action === "walk" ? -1 : 0;
     var facing = direction || 1;
+    var armLift = Math.sin(phase + Math.PI * 0.5) > 0 ? 0 : 1;
     ctx.fillStyle = color;
     ctx.fillRect(Math.floor(x), Math.floor(y - 6), 2, 2);
+    if (role === "guard") ctx.fillRect(Math.floor(x - 1), Math.floor(y - 7), 4, 1);
     ctx.fillRect(Math.floor(x), Math.floor(y - 4), 2, 3);
+    if (action === "flashlight") {
+      ctx.fillRect(Math.floor(x + (facing > 0 ? 2 : -2)), Math.floor(y - 4), 3, 1);
+      ctx.fillRect(Math.floor(x + (facing > 0 ? -1 : 2)), Math.floor(y - 3), 1, 2);
+    } else if (action === "wave") {
+      ctx.fillRect(Math.floor(x + (facing > 0 ? 2 : -1)), Math.floor(y - 6), 1, 3);
+      ctx.fillRect(Math.floor(x + (facing > 0 ? -1 : 2)), Math.floor(y - 3), 1, 2);
+    } else if (action === "watch") {
+      ctx.fillRect(Math.floor(x - 1), Math.floor(y - 3), 1, 2);
+      ctx.fillRect(Math.floor(x + 2), Math.floor(y - 3), 1, 2);
+    } else {
+      ctx.fillRect(Math.floor(x - 1), Math.floor(y - 4 + armLift), 1, 2);
+      ctx.fillRect(Math.floor(x + 2), Math.floor(y - 4 + (1 - armLift)), 1, 2);
+    }
     ctx.fillRect(Math.floor(x - step), Math.floor(y - 1), 1, 3);
     ctx.fillRect(Math.floor(x + 1 + step), Math.floor(y - 1), 1, 3);
+    if (role === "worker") ctx.fillRect(Math.floor(x), Math.floor(y - 7), 2, 1);
+    if (role === "guest") ctx.fillRect(Math.floor(x + (facing > 0 ? 2 : -1)), Math.floor(y - 3), 1, 1);
     ctx.fillStyle = "#11111d";
     ctx.fillRect(Math.floor(x + (facing > 0 ? 1 : 0)), Math.floor(y - 5), 1, 1);
+  }
+
+  function platformResidentCount() {
+    return visualDensity() < 0.48 ? 1 : 2;
+  }
+
+  function platformResidentPose(index, time, geometry, out) {
+    var pose = out || {};
+    var span = geometry.right - geometry.left;
+    var activity = Math.max(0.25, tuning.platformActivity);
+    var cycle = (time * 0.34 * activity + index * 11.7) % 30;
+    pose.role = index === 0 ? "guard" : "worker";
+    pose.deck = geometry.deck - 2;
+    pose.phase = time * 0.75 * activity + index * 2.3;
+    if (index === 0) {
+      pose.direction = -1;
+      pose.x = geometry.left + Math.min(17, span * 0.13);
+      pose.action = cycle < 11 ? "watch" : cycle < 18 ? "flashlight" : "walk";
+      if (pose.action === "walk") {
+        pose.x += (Math.sin((cycle - 18) / 12 * Math.PI * 2) + 1) * Math.min(5, span * 0.035);
+        pose.direction = Math.cos((cycle - 18) / 12 * Math.PI * 2) > 0 ? 1 : -1;
+      }
+    } else {
+      pose.x = geometry.left + span * 0.55 + Math.sin(time * 0.18 * activity + 1.4) * Math.min(10, span * 0.06);
+      pose.direction = Math.cos(time * 0.18 * activity + 1.4) >= 0 ? 1 : -1;
+      pose.action = cycle < 12 ? "walk" : cycle < 22 ? "watch" : "wave";
+      if (structure.integrity < 0.985 && cycle >= 12) {
+        pose.action = "work";
+        pose.x = geometry.left + span * 0.58;
+        pose.direction = -1;
+      }
+    }
+    return pose;
+  }
+
+  function drawResidentFlashlight(pose, palette, geometry, time) {
+    if (pose.action !== "flashlight") return;
+    var facing = pose.direction || -1;
+    var sourceX = pose.x + facing * 4;
+    var sourceY = pose.deck - 4;
+    var reach = Math.min(58, Math.max(28, geometry.line - sourceY + 24));
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    for (var beamStep = 0; beamStep <= reach; beamStep += 3) {
+      var beamX = sourceX + facing * beamStep * 0.54;
+      var beamY = sourceY + beamStep;
+      if (hash(beamStep * 9.7 + Math.floor(time * 2)) > 0.24) pixelRect(beamX, beamY, 1, 1, palette.foam);
+      if (beamStep > reach * 0.45 && beamStep % 6 === 0) {
+        pixelRect(beamX + facing * 2, beamY, 1, 1, palette.bubble);
+      }
+    }
+    ctx.globalAlpha = 0.52;
+    pixelRect(sourceX, sourceY, 2, 1, palette.lamp);
+    ctx.restore();
   }
 
   function drawSky(time, palette, line) {
@@ -836,47 +2615,38 @@
       if (y >= line) continue;
       var twinkle = hash(i * 7 + Math.floor(time * 0.8));
       ctx.fillStyle = twinkle > 0.9 ? palette.foam : palette.star;
-      ctx.fillRect(x, y, twinkle > 0.97 && mode === "C" ? 2 : 1, 1);
+      ctx.fillRect(x, y, 1, 1);
     }
-    drawPlanet(palette);
+    drawPlanet(time, palette);
   }
 
   function drawWater(time, palette, line, raftX) {
-    pixelRect(0, line - 16, width, 46, palette.waterTop);
-    pixelRect(0, line + 30, width, 58, palette.water);
-    pixelRect(0, line + 88, width, 70, palette.waterDeep);
-    pixelRect(0, line + 158, width, Math.max(1, height - line - 158), palette.abyss);
-    for (var seam = 0; seam < 3; seam += 1) {
-      var seamY = line + 27 + seam * 58;
-      var seamColor = seam === 0 ? palette.water : seam === 1 ? palette.waterDeep : palette.abyss;
-      for (var seamX = -8; seamX < width + 8; seamX += 8) {
-        if ((Math.floor(screenToWorldX(seamX) / 8) + seam) % 2 === 0) {
-          pixelRect(seamX, seamY, 5, 4, seamColor);
-        }
+    if (!waterTexture) buildWaterTexture(palette, line);
+    ctx.drawImage(waterTexture, 0, 0);
+
+    for (var x = 0; x < width; x += 1) {
+      var top = Math.floor(surfaceY(x, time, line, raftX));
+      var transitionBottom = line + 4;
+      for (var fillY = top; fillY < transitionBottom; fillY += 1) {
+        pixelRect(x, fillY, 1, 1, palette.waterTop);
       }
     }
 
-    ctx.fillStyle = palette.waterTop;
-    for (var x = 0; x < width; x += 1) {
-      var top = Math.floor(surfaceY(x, time, line, raftX));
-      ctx.fillRect(x, top, 1, Math.max(1, line + 16 - top));
-    }
-
-    ctx.globalAlpha = 0.32;
+    ctx.globalAlpha = 0.28;
     for (var y = line + 14; y < height; y += 22) {
       var offset = Math.floor((time * 0.18 + y * 0.73) % 28);
-      ctx.fillStyle = y < line + 90 ? palette.water : palette.waterDeep;
       for (var sx = -offset; sx < width; sx += 28) {
         var bend = Math.floor(Math.sin(sx * 0.03 + y * 0.025 - time * 0.12) * 3);
-        ctx.fillRect(sx + bend, y, 9, 1);
+        drawPixelMask(
+          sx + bend,
+          y,
+          ["1  1  1", "  1    "],
+          { "1": y < line + 90 ? palette.waterTop : palette.water },
+          (sx / 28) % 2 === 0
+        );
       }
     }
     ctx.globalAlpha = 1;
-  }
-
-  function drawAnchorCable(x1, y1, x2, y2, palette) {
-    pixelLine(x1, y1, x2, y2, palette.steelDark, 3);
-    pixelLine(x1, y1, x2, y2, palette.steel, 1);
   }
 
   function createMooring(geometry) {
@@ -990,7 +2760,7 @@
     }
   }
 
-  function drawMooring(palette) {
+  function drawMooringUnder(palette) {
     if (!mooring.initialized) return;
     for (var i = 1; i < mooring.points.length; i += 1) {
       pixelLine(
@@ -1002,38 +2772,30 @@
         1
       );
     }
-    ctx.fillStyle = palette.planetLight;
-    ctx.fillRect(Math.floor(mooring.buoyX - 3), Math.floor(mooring.buoyY - 2), 7, 3);
-    ctx.fillStyle = palette.steelDark;
-    ctx.fillRect(Math.floor(mooring.buoyX), Math.floor(mooring.buoyY - 6), 1, 4);
-    ctx.fillStyle = palette.lamp;
-    ctx.fillRect(Math.floor(mooring.buoyX), Math.floor(mooring.buoyY - 7), 1, 1);
+    drawPixelMask(
+      mooring.buoyX - 3,
+      mooring.buoyY,
+      [" 11111 ", "  222  ", "   2   "],
+      { "1": palette.planetLight, "2": palette.steelDark },
+      false
+    );
+  }
+
+  function drawMooringAbove(palette) {
+    if (!mooring.initialized) return;
+    drawPixelMask(
+      mooring.buoyX - 3,
+      mooring.buoyY - 3,
+      ["   1   ", " 12221 ", "11   11"],
+      { "1": palette.planetLight, "2": palette.steelDark },
+      false
+    );
+    pixelLine(mooring.buoyX, mooring.buoyY - 3, mooring.buoyX, mooring.buoyY - 7, palette.steelDark, 1);
+    pixelRect(mooring.buoyX, mooring.buoyY - 8, 1, 1, palette.lamp);
   }
 
   function drawSubstructure(time, palette, geometry) {
     var foundationWidth = geometry.right - geometry.left + 7;
-
-    drawAnchorCable(
-      geometry.left + foundationWidth * 0.2,
-      geometry.foundationBottom,
-      worldToScreenX(PLATFORM_WORLD_LEFT - 230),
-      geometry.line + 360,
-      palette
-    );
-    drawAnchorCable(
-      geometry.left + foundationWidth * 0.62,
-      geometry.foundationBottom,
-      worldToScreenX(PLATFORM_WORLD_LEFT - 42),
-      geometry.line + 370,
-      palette
-    );
-    drawAnchorCable(
-      geometry.right - 18,
-      geometry.foundationBottom,
-      worldToScreenX(PLATFORM_WORLD_LEFT + PLATFORM_WORLD_WIDTH + 230),
-      geometry.line + 350,
-      palette
-    );
 
     for (var i = 0; i < geometry.pylons.length; i += 1) {
       var x = Math.floor(geometry.pylons[i]);
@@ -1046,27 +2808,6 @@
         var rungX = lerp(topX, x, rungAmount);
         pixelRect(rungX - 2, y, 6, 1, palette.timberLight);
       }
-    }
-
-    for (var b = 0; b < geometry.pylons.length - 1; b += 1) {
-      var bx = geometry.pylons[b];
-      var nx = geometry.pylons[b + 1];
-      pixelLine(
-        bx + structure.sway,
-        geometry.line + 7 + structure.sag,
-        nx,
-        geometry.foundationTop - 5,
-        palette.steelDark,
-        2
-      );
-      pixelLine(
-        nx + structure.sway,
-        geometry.line + 7 + structure.sag,
-        bx,
-        geometry.foundationTop - 5,
-        palette.steelDark,
-        2
-      );
     }
 
     panelBlock(
@@ -1123,78 +2864,656 @@
     );
 
     ctx.globalAlpha = 0.4;
-    ctx.fillStyle = palette.bubble;
     for (var j = 0; j < geometry.pylons.length; j += 3) {
-      var py = geometry.line + 20 + ((j * 11 + Math.floor(time * 2)) % 45);
-      ctx.fillRect(Math.floor(geometry.pylons[j] + 5), py, 1, 1);
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  function updateLeviathan(dt, time, geometry) {
-    if (!leviathan.y) leviathan.y = geometry.line + (height - geometry.line) * 0.69;
-    var sense = 48;
-    var foodLeft = sampleFluid(leviathan.x - sense, leviathan.y).plankton;
-    var foodRight = sampleFluid(leviathan.x + sense, leviathan.y).plankton;
-    var foodUp = sampleFluid(leviathan.x, leviathan.y - sense).plankton;
-    var foodDown = sampleFluid(leviathan.x, leviathan.y + sense).plankton;
-    var localFlow = sampleFluid(leviathan.x, leviathan.y);
-    var targetVX = 0.16 + localFlow.x * 0.12 + (foodRight - foodLeft) * 0.05;
-    var targetVY = (foodDown - foodUp) * 0.07 + Math.sin(time * 0.08) * 0.035 + localFlow.y * 0.08;
-    leviathan.vx += (targetVX - leviathan.vx) * dt * 0.2;
-    leviathan.vy += (targetVY - leviathan.vy) * dt * 0.25;
-    leviathan.x += leviathan.vx * dt;
-    leviathan.y += leviathan.vy * dt;
-    leviathan.y = clamp(
-      leviathan.y,
-      geometry.line + Math.max(34, (height - geometry.line) * 0.34),
-      height - 25
-    );
-    consumePlankton(leviathan.x - 30, leviathan.y, dt * 0.009);
-    if (screenToWorldX(leviathan.x) > WORLD_WRAP_RIGHT + 145) {
-      leviathan.x = worldToScreenX(WORLD_WRAP_LEFT - 145);
-    }
-  }
-
-  function drawLeviathan(time, palette, actors) {
-    var x = actors.leviathanX;
-    var y = actors.leviathanY;
-    var scale = 0.82;
-    ctx.globalAlpha = mode === "C" ? 0.72 : 0.55;
-    ctx.fillStyle = palette.creature;
-    ctx.fillRect(Math.floor(x - 37 * scale), Math.floor(y - 8 * scale), Math.floor(74 * scale), Math.floor(16 * scale));
-    drawPixelDisc(x - 33 * scale, y, Math.floor(10 * scale), palette.creature);
-    for (var i = 0; i < 7; i += 1) {
-      var tentacleY = y + (i - 3) * 3 * scale;
-      for (var s = 0; s < 38 * scale; s += 2) {
-        var tx = x + 34 * scale + s;
-        var ty = tentacleY + Math.sin(time * 0.23 + i + s * 0.13) * (2 + i % 3);
-        ctx.fillRect(Math.floor(tx), Math.floor(ty), 2, 1);
+      var bubbleTravel = Math.max(18, geometry.foundationTop - geometry.line - 5);
+      for (var postBubble = 0; postBubble < 3; postBubble += 1) {
+        var bubbleAge = (time * (0.055 + postBubble * 0.009) + j * 0.173 + postBubble * 0.337) % 1;
+        var py = geometry.foundationTop - 3 - bubbleAge * bubbleTravel;
+        var bubbleDrift = Math.sin(bubbleAge * Math.PI * 3 + j) * (1 + postBubble * 0.45);
+        pixelRect(geometry.pylons[j] + 5 + bubbleDrift, py, 1, 1, palette.bubble);
       }
     }
-    ctx.globalAlpha = 0.82;
-    ctx.fillStyle = palette.lamp;
-    ctx.fillRect(Math.floor(x - 45 * scale), Math.floor(y - 5 * scale), 2, 2);
     ctx.globalAlpha = 1;
   }
 
-  function drawFloatingKelp(time, palette, line) {
-    var beds = [
-      { x: worldToScreenX(34), w: 60, depth: 34 },
-      { x: worldToScreenX(196), w: 35, depth: 23 }
-    ];
-    for (var b = 0; b < beds.length; b += 1) {
-      var bed = beds[b];
-      ctx.fillStyle = palette.kelp;
-      for (var x = bed.x; x < bed.x + bed.w; x += 3) {
-        var top = surfaceY(x, time, line, -999) + 4;
-        ctx.fillRect(Math.floor(x), Math.floor(top), 3, 2);
-        var strand = bed.depth * (0.45 + hash(x * 0.7) * 0.55);
-        for (var y = 3; y < strand; y += 2) {
-          var sway = Math.sin(time * 0.32 + y * 0.19 + x) * (y / strand) * 4;
-          ctx.fillRect(Math.floor(x + 1 + sway), Math.floor(top + y), y % 8 === 1 ? 2 : 1, 2);
+  function updateLeviathans(dt, time, geometry) {
+    for (var i = 0; i < leviathans.length; i += 1) {
+      var leviathan = leviathans[i];
+      if (!leviathan.y) {
+        leviathan.y = geometry.line + (height - geometry.line) * leviathan.depth;
+      }
+      var sense = 48 * leviathan.scale;
+      var foodLeft = sampleFluid(leviathan.x - sense, leviathan.y).plankton;
+      var foodRight = sampleFluid(leviathan.x + sense, leviathan.y).plankton;
+      var foodUp = sampleFluid(leviathan.x, leviathan.y - sense).plankton;
+      var foodDown = sampleFluid(leviathan.x, leviathan.y + sense).plankton;
+      var localFlow = sampleFluid(leviathan.x, leviathan.y);
+      var preferredDepthY = geometry.line + (height - geometry.line) * leviathan.depth;
+      var targetVX = leviathan.direction * (0.12 + 0.045 / leviathan.scale) +
+        localFlow.x * 0.1 + (foodRight - foodLeft) * 0.045;
+      var targetVY = (foodDown - foodUp) * 0.065 +
+        Math.sin(time * 0.075 + leviathan.phase) * 0.032 + localFlow.y * 0.07 +
+        clamp((preferredDepthY - leviathan.y) * 0.004, -0.12, 0.12);
+      leviathan.vx += (targetVX - leviathan.vx) * dt * 0.18;
+      leviathan.vy += (targetVY - leviathan.vy) * dt * 0.23;
+      leviathan.x += leviathan.vx * dt;
+      leviathan.y += leviathan.vy * dt;
+      leviathan.y = clamp(
+        leviathan.y,
+        geometry.line + Math.max(29, (height - geometry.line) * 0.27),
+        height - 20
+      );
+      consumePlankton(leviathan.x + leviathan.direction * 35 * leviathan.scale, leviathan.y, dt * 0.008 * leviathan.scale);
+      var worldX = screenToWorldX(leviathan.x);
+      if (leviathan.direction > 0 && worldX > activeWorldRight() + 155) {
+        leviathan.x = worldToScreenX(activeWorldLeft() - 155);
+      } else if (leviathan.direction < 0 && worldX < activeWorldLeft() - 155) {
+        leviathan.x = worldToScreenX(activeWorldRight() + 155);
+      }
+    }
+  }
+
+  function drawLeviathanActor(time, palette, leviathan, index, inspectionOnly) {
+    var x = leviathan.x;
+    var y = leviathan.y;
+    var scale = leviathan.scale;
+    var direction = leviathan.direction;
+    var traits = leviathan.variation;
+    var lengthVariation = traits ? clamp(traits.bodyLength / Math.max(1, 69 * scale), 0.78, 1.24) : 1;
+    var heightVariation = traits ? clamp(traits.bodyHeight / Math.max(1, 19 * scale), 0.76, 1.3) : 1;
+    var anatomicalHalfLength = 34 * lengthVariation;
+    var anatomicalHalfHeight = 9 * heightVariation;
+    if (!inspectionOnly) {
+      var glowCount = traits ? Math.round(38 + traits.glowDensity * 38) : 54;
+      for (var glowPoint = 0; glowPoint < glowCount; glowPoint += 1) {
+        var glowSeed = index * 701.3 + glowPoint * 23.7;
+        var glowAngle = hash(glowSeed) * Math.PI * 2;
+        var glowRadius = (26 + hash(glowSeed + 4.3) * 36) * scale;
+        var glowX = x + Math.cos(glowAngle) * glowRadius * 1.28;
+        var glowY = y + Math.sin(glowAngle) * glowRadius * 0.42;
+        var glowPulse = (Math.sin(time * 0.34 + glowPoint * 0.71 + leviathan.phase) + 1) * 0.5;
+        ctx.globalAlpha = (0.12 + glowPulse * 0.2) * (traits ? traits.glowStrength : 1);
+        pixelRect(glowX, glowY, 1, 1, glowPoint % 4 === 0 ? palette.plankton : palette.bubble);
+        if (glowPoint % 6 === 0) pixelRect(glowX + direction, glowY + (glowPoint % 12 === 0 ? 1 : -1), 1, 1, palette.bubble);
+      }
+      ctx.globalAlpha = 0.11;
+      drawPixelDisc(x + direction * 48 * scale, y - 9 * scale, Math.max(2, Math.round(6 * scale)), palette.bubble);
+    }
+    ctx.globalAlpha = inspectionOnly ? 1 : 0.68;
+    for (var bodyX = -Math.ceil(anatomicalHalfLength); bodyX <= Math.ceil(anatomicalHalfLength); bodyX += 1) {
+      var anatomicalX = bodyX * direction / anatomicalHalfLength;
+      var bodyEnvelope = Math.sqrt(Math.max(0, 1 - anatomicalX * anatomicalX));
+      var rearTaper = anatomicalX < -0.35
+        ? lerp(0.35, 1, clamp((anatomicalX + 1) / 0.65, 0, 1))
+        : 1;
+      var headMass = anatomicalX > 0.35
+        ? 1 + Math.sin(clamp((anatomicalX - 0.35) / 0.65, 0, 1) * Math.PI) * 0.18
+        : 1;
+      var segmentNotch = traits
+        ? 1 - Math.max(0, Math.cos((anatomicalX + 1) * Math.PI * traits.segmentCount)) * 0.045
+        : 1;
+      var halfHeight = Math.max(0, Math.floor(anatomicalHalfHeight * bodyEnvelope * rearTaper * headMass * segmentNotch));
+      var bodyCenterY = Math.round(-bodyEnvelope * (0.7 + anatomicalX * 0.35));
+      for (var bodyY = -halfHeight; bodyY <= halfHeight; bodyY += 1) {
+        var edge = halfHeight - Math.abs(bodyY);
+        var bodySeed = index * 911 + bodyX * 17.3 + bodyY * 31.7;
+        if (edge < 2 && hash(bodySeed) < 0.25) continue;
+        var bodyColor = hash(bodySeed + 4.1) > 0.91
+          ? palette.steelDark
+          : hash(bodySeed + 7.7) > 0.965
+            ? palette.waterDeep
+            : palette.creature;
+        pixelRect(x + bodyX * scale, y + (bodyCenterY + bodyY) * scale, 1, 1, bodyColor);
+      }
+    }
+    var seamCount = traits ? clamp(traits.segmentCount - 2, 2, 6) : 3;
+    for (var bodySeam = 0; bodySeam < seamCount; bodySeam += 1) {
+      var seamX = x + direction * lerp(-anatomicalHalfLength * 0.45, anatomicalHalfLength * 0.48, bodySeam / Math.max(1, seamCount - 1)) * scale;
+      pixelLine(seamX, y - (5 + bodySeam) * scale, seamX - direction * scale, y + (5 + bodySeam) * scale, palette.steelDark, 1);
+    }
+    var tentacleCount = traits ? traits.tentacleCount : 4;
+    for (var tentacle = 0; tentacle < tentacleCount; tentacle += 1) {
+      var tentacleBaseY = y + (tentacle - (tentacleCount - 1) * 0.5) * 3.2 * scale;
+      var tentacleLength = (traits ? traits.tentacleLength * 0.72 / Math.max(0.1, scale) : 17 + (tentacle % 2) * 6) * scale;
+      for (var step = 0; step < tentacleLength; step += 2) {
+        var tentacleX = x - direction * (anatomicalHalfLength * 0.91 * scale + step);
+        var tentacleY = tentacleBaseY + Math.sin(time * 0.18 + leviathan.phase + tentacle + step * 0.14) * (2 + tentacle % 2);
+        pixelRect(tentacleX, tentacleY, 1, 1, palette.creature);
+        if (step % 8 === 0) pixelRect(tentacleX - direction, tentacleY + (tentacle % 2 ? 1 : -1), 1, 1, palette.steelDark);
+      }
+    }
+    var tailRootX = x - direction * anatomicalHalfLength * 0.88 * scale;
+    pixelLine(tailRootX, y, tailRootX - direction * 14 * scale, y - 10 * scale + Math.sin(time * 0.16 + leviathan.phase) * 2, palette.creature, Math.max(1, Math.round(scale * 2)));
+    pixelLine(tailRootX, y, tailRootX - direction * 14 * scale, y + 10 * scale + Math.sin(time * 0.16 + leviathan.phase + 2.1) * 2, palette.creature, Math.max(1, Math.round(scale * 2)));
+    pixelLine(x - direction * 2 * scale, y - 7 * scale, x - direction * 9 * scale, y - 15 * scale, palette.creature, Math.max(1, Math.round(scale * 1.5)));
+    var faceX = x + direction * anatomicalHalfLength * 0.91 * scale;
+    pixelLine(faceX, y - 4 * scale, faceX + direction * 16 * scale, y - 10 * scale, palette.creature, 1);
+    pixelLine(faceX, y + 4 * scale, faceX + direction * 18 * scale, y + 9 * scale, palette.creature, 1);
+    ctx.globalAlpha = inspectionOnly ? 1 : traits ? 0.5 + traits.glowStrength * 0.28 : 0.88;
+    pixelRect(faceX + direction * 17 * scale, y - 10 * scale, 2, 2, palette.lamp);
+    pixelRect(faceX + direction * 19 * scale, y + 9 * scale, 1, 1, palette.plankton);
+    pixelRect(faceX + direction * 5 * scale, y, 3, 2, palette.abyss);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawLeviathans(time, palette) {
+    for (var i = 0; i < leviathans.length; i += 1) {
+      drawLeviathanActor(time, palette, leviathans[i], i);
+    }
+  }
+
+  function backgroundTitanState(time, line, encounter) {
+    var local = (time - encounter.start) % encounter.cycle;
+    if (local < 0) local += encounter.cycle;
+    if (backgroundTitanPreview && backgroundTitanPreview === encounter.type) local = encounter.duration * 0.5;
+    if (local > encounter.duration) return null;
+    var progress = local / encounter.duration;
+    var radiusX = encounter.type === "veilback" ? Math.max(245, width * 0.72) : Math.max(290, width * 0.86);
+    var radiusY = encounter.type === "veilback" ? 92 : 76;
+    var margin = radiusX * 0.88;
+    var x = encounter.direction > 0
+      ? -margin + progress * (width + margin * 2)
+      : width + margin - progress * (width + margin * 2);
+    var y = line + encounter.worldDepth + Math.sin(time * 0.018 + encounter.phase) * 2;
+    return { x: x, y: y, radiusX: radiusX, radiusY: radiusY, progress: progress };
+  }
+
+  function activeBackgroundTitan(time, line) {
+    for (var titanIndex = 0; titanIndex < backgroundTitans.length; titanIndex += 1) {
+      var encounter = backgroundTitans[titanIndex];
+      var state = backgroundTitanState(time, line, encounter);
+      if (state) return { encounter: encounter, state: state, index: titanIndex };
+    }
+    return null;
+  }
+
+  function drawBackgroundTitans(time, palette, line) {
+    var active = activeBackgroundTitan(time, line);
+    if (!active) return;
+    var encounter = active.encounter;
+    var state = active.state;
+    var x = state.x;
+    var y = state.y;
+    var radiusX = state.radiusX;
+    var radiusY = state.radiusY;
+    ctx.save();
+    ctx.globalAlpha = encounter.type === "veilback" ? 0.075 : 0.09;
+    ctx.fillStyle = palette.abyss;
+    for (var bodyX = -Math.round(radiusX); bodyX <= Math.round(radiusX); bodyX += 1) {
+      var u = bodyX / radiusX;
+      var envelope;
+      if (encounter.type === "veilback") {
+        envelope = Math.pow(Math.max(0, 1 - Math.abs(u)), 0.42);
+        envelope *= 0.52 + Math.sin((u + 1) * Math.PI) * 0.48;
+      } else {
+        envelope = Math.sqrt(Math.max(0, 1 - u * u));
+        envelope *= 0.74 + Math.exp(-Math.pow((u - 0.28) * 2.2, 2)) * 0.26;
+      }
+      var slowEdge = Math.sin(time * 0.027 + encounter.phase + u * 5.2) * 2.2 * envelope;
+      var halfHeight = Math.max(0, Math.round(radiusY * envelope));
+      var center = y - Math.round(radiusY * 0.12 * envelope) + slowEdge;
+      ctx.fillRect(Math.round(x + bodyX), Math.round(center - halfHeight), 1, Math.max(1, halfHeight * 2));
+    }
+    ctx.globalAlpha = 0.1;
+    var seamCount = encounter.type === "veilback" ? 5 : 8;
+    for (var seam = 1; seam < seamCount; seam += 1) {
+      var seamAmount = seam / seamCount;
+      var seamX = x - radiusX * 0.62 + radiusX * 1.24 * seamAmount;
+      var seamHeight = radiusY * (0.34 + Math.sin(seamAmount * Math.PI) * 0.46);
+      pixelLine(seamX, y - seamHeight, seamX + Math.sin(time * 0.02 + seam) * 3, y + seamHeight, palette.waterDeep, 2);
+    }
+    ctx.globalAlpha = 0.09;
+    for (var glint = 0; glint < 26; glint += 1) {
+      var glintX = x + (hash(active.index * 701 + glint * 31.7) - 0.5) * radiusX * 1.35;
+      var glintY = y + (hash(active.index * 919 + glint * 17.1) - 0.5) * radiusY * 0.9;
+      pixelRect(glintX, glintY, 1, 1, glint % 7 === 0 ? palette.bubble : palette.steelDark);
+    }
+    ctx.restore();
+  }
+
+  function colossalState(time, line, encounter) {
+    var local = (time - encounter.start) % encounter.cycle;
+    if (local < 0) local += encounter.cycle;
+    if (local > encounter.duration) return null;
+    var progress = local / encounter.duration;
+    var scale = encounter.scale * (0.97 + Math.sin(time * 0.045 + encounter.phase) * 0.03);
+    var margin = 28 + scale * 22;
+    var travel = width + margin * 2;
+    var x = encounter.direction > 0
+      ? -margin + progress * travel
+      : width + margin - progress * travel;
+    var y = line + encounter.worldDepth + Math.sin(time * 0.055 + encounter.phase) * 2.4;
+    return { x: x, y: y, scale: scale, dive: 0, progress: progress };
+  }
+
+  function activeColossalEncounter(time, line) {
+    for (var encounterIndex = 0; encounterIndex < colossalEncounters.length; encounterIndex += 1) {
+      var encounter = colossalEncounters[encounterIndex];
+      var state = colossalState(time, line, encounter);
+      if (state) return { encounter: encounter, state: state, index: encounterIndex };
+    }
+    return null;
+  }
+
+  function colossalTendrilAnchor(state, encounter, tendrilIndex, tendrilCount) {
+    var radiusX = 22 * state.scale;
+    var radiusY = 7.5 * state.scale;
+    var spread = tendrilCount <= 1 ? 0.5 : tendrilIndex / (tendrilCount - 1);
+    return {
+      x: state.x + encounter.direction * radiusX * (0.2 + spread * 0.42),
+      y: state.y + radiusY * (0.66 + Math.sin(spread * Math.PI) * 0.08)
+    };
+  }
+
+  function initializeColossalTendrils(encounter, state, encounterIndex) {
+    var count = 9;
+    encounter.tendrils = [];
+    for (var tendril = 0; tendril < count; tendril += 1) {
+      var anchor = colossalTendrilAnchor(state, encounter, tendril, count);
+      var pointCount = 10 + (tendril % 4) * 2;
+      var segmentLength = state.scale * (0.43 + (tendril % 3) * 0.045);
+      var chain = {
+        points: [],
+        previous: [],
+        segmentLength: segmentLength,
+        phase: encounterIndex * 2.7 + tendril * 1.31
+      };
+      for (var point = 0; point < pointCount; point += 1) {
+        var amount = point / Math.max(1, pointCount - 1);
+        var px = anchor.x - encounter.direction * amount * state.scale * (2.4 + tendril * 0.08);
+        var py = anchor.y + point * segmentLength * 0.9;
+        chain.points.push({ x: px, y: py });
+        chain.previous.push({ x: px, y: py });
+      }
+      encounter.tendrils.push(chain);
+    }
+  }
+
+  function updateColossalTendrils(dt, time, line) {
+    var activeColossal = activeColossalEncounter(time, line);
+    for (var encounterIndex = 0; encounterIndex < colossalEncounters.length; encounterIndex += 1) {
+      var encounter = colossalEncounters[encounterIndex];
+      if (!activeColossal || encounterIndex !== activeColossal.index) {
+        encounter.tendrils = [];
+        continue;
+      }
+      var state = activeColossal.state;
+      if (!encounter.tendrils.length) initializeColossalTendrils(encounter, state, encounterIndex);
+      var firstAnchor = colossalTendrilAnchor(state, encounter, 0, encounter.tendrils.length);
+      var root = encounter.tendrils[0].points[0];
+      if (Math.abs(root.x - firstAnchor.x) + Math.abs(root.y - firstAnchor.y) > state.scale * 18) {
+        initializeColossalTendrils(encounter, state, encounterIndex);
+      }
+
+      for (var tendril = 0; tendril < encounter.tendrils.length; tendril += 1) {
+        var chain = encounter.tendrils[tendril];
+        var anchor = colossalTendrilAnchor(state, encounter, tendril, encounter.tendrils.length);
+        chain.segmentLength = state.scale * (0.43 + (tendril % 3) * 0.045);
+        chain.points[0].x = anchor.x;
+        chain.points[0].y = anchor.y;
+        chain.previous[0].x = anchor.x;
+        chain.previous[0].y = anchor.y;
+
+        for (var point = 1; point < chain.points.length; point += 1) {
+          var current = chain.points[point];
+          var previous = chain.previous[point];
+          var velocityX = (current.x - previous.x) * 0.991;
+          var velocityY = (current.y - previous.y) * 0.991;
+          previous.x = current.x;
+          previous.y = current.y;
+          var localFlow = sampleFluid(current.x, current.y);
+          var slowWiggle = Math.sin(time * 0.17 + chain.phase + point * 0.39) * state.scale * 0.055;
+          current.x += velocityX + localFlow.x * dt * 0.32 + slowWiggle * dt;
+          current.y += velocityY + localFlow.y * dt * 0.28 + state.scale * 0.003 * dt;
+        }
+
+        for (var iteration = 0; iteration < 6; iteration += 1) {
+          chain.points[0].x = anchor.x;
+          chain.points[0].y = anchor.y;
+          for (var segment = 0; segment < chain.points.length - 1; segment += 1) {
+            var a = chain.points[segment];
+            var b = chain.points[segment + 1];
+            var dx = b.x - a.x;
+            var dy = b.y - a.y;
+            var distance = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
+            var correction = (distance - chain.segmentLength) / distance;
+            if (segment === 0) {
+              b.x -= dx * correction;
+              b.y -= dy * correction;
+            } else {
+              a.x += dx * correction * 0.5;
+              a.y += dy * correction * 0.5;
+              b.x -= dx * correction * 0.5;
+              b.y -= dy * correction * 0.5;
+            }
+          }
         }
       }
+    }
+  }
+
+  function drawColossalTendrils(palette, encounter, fade, scale) {
+    ctx.globalAlpha = fade;
+    for (var tendril = 0; tendril < encounter.tendrils.length; tendril += 1) {
+      var chain = encounter.tendrils[tendril];
+      for (var point = 1; point < chain.points.length; point += 1) {
+        pixelLine(
+          chain.points[point - 1].x,
+          chain.points[point - 1].y,
+          chain.points[point].x,
+          chain.points[point].y,
+          palette.creature,
+          Math.max(1, Math.round(scale * 0.16))
+        );
+      }
+      var tip = chain.points[chain.points.length - 1];
+      ctx.globalAlpha = 0.2;
+      pixelRect(tip.x, tip.y, 1, 1, tendril % 3 === 0 ? palette.plankton : palette.bubble);
+      ctx.globalAlpha = fade;
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawColossalAppendage(startX, startY, direction, reach, bend, wave, time, phase, thickness, color) {
+    var previousX = startX;
+    var previousY = startY;
+    var segments = 7;
+    for (var segment = 1; segment <= segments; segment += 1) {
+      var amount = segment / segments;
+      var softAmount = amount * amount * (3 - 2 * amount);
+      var lag = Math.sin(time * 0.105 + phase + amount * 2.4) * wave * Math.pow(amount, 1.35);
+      var crossCurrent = Math.sin(time * 0.061 + phase * 1.7 + amount * 4.1) * wave * 0.34 * amount;
+      var nextX = startX - direction * reach * amount + crossCurrent;
+      var nextY = startY + bend * softAmount + lag;
+      var segmentThickness = Math.max(1, Math.round(thickness * (1 - amount * 0.55)));
+      pixelLine(previousX, previousY, nextX, nextY, color, segmentThickness);
+      previousX = nextX;
+      previousY = nextY;
+    }
+  }
+
+  function drawColossalWhisker(startX, startY, direction, reach, lift, wave, time, phase, thickness, color) {
+    var previousX = startX;
+    var previousY = startY;
+    var segments = 9;
+    for (var segment = 1; segment <= segments; segment += 1) {
+      var amount = segment / segments;
+      var tipFreedom = Math.pow(amount, 1.35);
+      var travelingBend = Math.sin(time * 0.14 + phase + amount * 3.4) * wave * tipFreedom;
+      var currentBend = Math.sin(time * 0.065 + phase * 1.7 + amount * 5.1) * wave * 0.3 * amount;
+      var nextX = startX + direction * reach * amount + currentBend;
+      var nextY = startY + lift * amount + travelingBend;
+      pixelLine(previousX, previousY, nextX, nextY, color, thickness);
+      previousX = nextX;
+      previousY = nextY;
+    }
+  }
+
+  function drawColossalEncounter(time, palette, line, encounter, index, inspectionOnly) {
+    var state = colossalState(time, line, encounter);
+    if (!state) return;
+    var x = state.x;
+    var y = state.y;
+    var scale = state.scale;
+    var direction = encounter.direction;
+    var radiusX = Math.max(20, Math.round(22 * scale));
+    var radiusY = Math.max(9, Math.round(7.5 * scale));
+    var fade = index === 0 ? 0.46 : 0.34;
+
+    if (!inspectionOnly) {
+      for (var halo = 0; halo < 176; halo += 1) {
+        var haloSeed = index * 991.7 + halo * 29.1;
+        var haloAngle = hash(haloSeed) * Math.PI * 2;
+        var haloRadius = 1.03 + hash(haloSeed + 8.4) * 0.3;
+        var haloX = x + Math.cos(haloAngle) * radiusX * haloRadius;
+        var haloY = y + Math.sin(haloAngle) * radiusY * haloRadius;
+        var haloPulse = (Math.sin(time * 0.18 + halo * 0.43 + encounter.phase) + 1) * 0.5;
+        ctx.globalAlpha = 0.1 + fade * (0.18 + haloPulse * 0.2);
+        pixelRect(haloX, haloY, 1, 1, halo % 5 === 0 ? palette.lamp : palette.bubble);
+        if (halo % 9 === 0) pixelRect(haloX + (halo % 2 ? 1 : -1), haloY + 1, 1, 1, palette.bubble);
+      }
+    }
+
+    ctx.globalAlpha = inspectionOnly ? 1 : fade;
+    ctx.fillStyle = palette.creature;
+    for (var bodyX = -radiusX; bodyX <= radiusX; bodyX += 1) {
+      var anatomicalX = bodyX * direction / radiusX;
+      var envelope = Math.sqrt(Math.max(0, 1 - anatomicalX * anatomicalX));
+      var tailTaper = anatomicalX < -0.38
+        ? lerp(0.32, 1, clamp((anatomicalX + 1) / 0.62, 0, 1))
+        : 1;
+      var forehead = anatomicalX > 0.38
+        ? 1 + Math.sin(clamp((anatomicalX - 0.38) / 0.62, 0, 1) * Math.PI) * 0.16
+        : 1;
+      var shoulder = 1 + Math.exp(-Math.pow((anatomicalX - 0.2) * 3.5, 2)) * 0.09;
+      var segmentWaist = 1 - Math.exp(-Math.pow((anatomicalX + 0.4) * 9, 2)) * 0.11;
+      var halfHeight = radiusY * envelope * tailTaper * forehead * shoulder * segmentWaist;
+      var spineArch = -radiusY * (0.09 + anatomicalX * 0.035) * envelope;
+      var edgeMobility = Math.pow(envelope, 0.7);
+      var slowBreath = Math.sin(time * 0.072 + encounter.phase) * scale * 0.15 * edgeMobility;
+      var topRipple = Math.sin(time * 0.108 + encounter.phase + anatomicalX * 5.2) * scale * 0.2 * edgeMobility;
+      var bottomRipple = Math.sin(time * 0.093 + encounter.phase * 1.4 + anatomicalX * 4.7 + 1.8) * scale * 0.16 * edgeMobility;
+      var columnTop = Math.round(y + spineArch - halfHeight - slowBreath + topRipple);
+      var columnBottom = Math.round(y + spineArch + halfHeight + slowBreath + bottomRipple);
+      ctx.fillRect(Math.round(x + bodyX), columnTop, 1, Math.max(1, columnBottom - columnTop + 1));
+    }
+
+    ctx.globalAlpha = 0.24;
+    for (var bodyMark = 0; bodyMark < 84; bodyMark += 1) {
+      var bodySeed = index * 401.3 + bodyMark * 37.7;
+      var markX = x + (hash(bodySeed) - 0.5) * radiusX * 1.55;
+      var markY = y + (hash(bodySeed + 9.2) - 0.5) * radiusY * 1.25;
+      var ellipse = Math.pow((markX - x) / radiusX, 2) + Math.pow((markY - y) / radiusY, 2);
+      if (ellipse < 0.78) pixelRect(markX, markY, bodyMark % 7 === 0 ? 2 : 1, 1, bodyMark % 9 === 0 ? palette.bubble : palette.steelDark);
+    }
+    ctx.globalAlpha = fade;
+
+    for (var bodySegment = 0; bodySegment < 3; bodySegment += 1) {
+      var segmentPosition = [-0.42, 0.02, 0.42][bodySegment];
+      var segmentX = x + direction * radiusX * segmentPosition;
+      var segmentHalfHeight = radiusY * (0.52 + bodySegment * 0.08);
+      for (var segmentY = -segmentHalfHeight; segmentY <= segmentHalfHeight; segmentY += 4) {
+        var seamCurve = Math.sin(segmentY * 0.09 + time * 0.055 + bodySegment) * scale * 0.18;
+        pixelRect(segmentX + seamCurve, y + segmentY, 1, 2, palette.steelDark);
+      }
+    }
+
+    var tailBaseX = x - direction * radiusX * 0.82;
+    var tailReach = radiusX * 0.58;
+    drawColossalAppendage(
+      tailBaseX, y - radiusY * 0.08, direction, tailReach, -radiusY * 0.58,
+      radiusY * 0.19, time, encounter.phase + 0.6,
+      Math.max(2, scale * 0.44), palette.creature
+    );
+    drawColossalAppendage(
+      tailBaseX, y + radiusY * 0.08, direction, tailReach, radiusY * 0.58,
+      radiusY * 0.19, time, encounter.phase + 3.2,
+      Math.max(2, scale * 0.44), palette.creature
+    );
+    var lowerFinX = x - direction * radiusX * 0.05;
+    drawColossalAppendage(
+      lowerFinX, y + radiusY * 0.48, direction, radiusX * 0.24, radiusY * 0.82,
+      radiusY * 0.14, time, encounter.phase + 5.1,
+      Math.max(2, scale * 0.34), palette.creature
+    );
+    var dorsalFinX = x - direction * radiusX * 0.08;
+    drawColossalAppendage(
+      dorsalFinX, y - radiusY * 0.72, direction, radiusX * 0.18, -radiusY * 0.48,
+      radiusY * 0.1, time, encounter.phase + 1.9,
+      Math.max(2, scale * 0.3), palette.creature
+    );
+
+    var faceX = x + direction * radiusX * 0.78;
+    var eyeY = y - radiusY * 0.12;
+    var eyeRadius = Math.max(2, Math.round(scale * 0.46));
+    ctx.globalAlpha = 0.055;
+    drawPixelDisc(faceX, eyeY, eyeRadius + Math.max(2, Math.round(scale * 0.7)), palette.bubble);
+    ctx.globalAlpha = 0.38;
+    drawPixelDisc(faceX, eyeY, eyeRadius, palette.plankton);
+    drawPixelDisc(faceX + direction, eyeY, Math.max(1, Math.round(eyeRadius * 0.38)), palette.abyss);
+
+    ctx.globalAlpha = fade * 0.56;
+    for (var antenna = 0; antenna < 5; antenna += 1) {
+      var antennaBaseY = y + (antenna - 2) * radiusY * 0.19;
+      drawColossalWhisker(
+        faceX,
+        antennaBaseY,
+        direction,
+        radiusX * (0.22 + antenna * 0.035),
+        (antenna - 2) * scale * 0.9,
+        scale * (0.42 + antenna * 0.055),
+        time,
+        encounter.phase + antenna * 1.27,
+        Math.max(1, Math.round(scale * 0.14)),
+        palette.creature
+      );
+    }
+
+    ctx.globalAlpha = fade * 0.7;
+    for (var marking = 0; marking < 42; marking += 1) {
+      var markingAmount = marking / 41;
+      var markingX = x - direction * radiusX * 0.58 + direction * radiusX * 1.14 * markingAmount;
+      var markingY = y - radiusY * (0.52 + Math.sin(markingAmount * Math.PI * 3) * 0.08);
+      if (marking % 6 !== 1) pixelRect(markingX, markingY, 1, 1, marking % 5 === 0 ? palette.plankton : palette.bubble);
+    }
+
+    drawColossalTendrils(palette, encounter, fade, scale);
+  }
+
+  function drawColossalEncounters(time, palette, line) {
+    var activeColossal = activeColossalEncounter(time, line);
+    if (!activeColossal) return;
+    drawColossalEncounter(time, palette, line, activeColossal.encounter, activeColossal.index);
+  }
+
+  function updateDeepBodyDescriptors(time, geometry) {
+    deepBodyDescriptors.length = 0;
+    for (var i = 0; i < leviathans.length; i += 1) {
+      var leviathan = leviathans[i];
+      deepBodyDescriptors.push({
+        x: leviathan.x,
+        y: leviathan.y,
+        radiusX: 34 * leviathan.scale,
+        radiusY: 11 * leviathan.scale,
+        direction: leviathan.direction,
+        wakeLength: 70 * leviathan.scale,
+        opacity: 0.78,
+        glow: 0.16
+      });
+    }
+    var activeColossal = activeColossalEncounter(time, geometry.line);
+    if (activeColossal) {
+      deepBodyDescriptors.push({
+        x: activeColossal.state.x,
+        y: activeColossal.state.y,
+        radiusX: 28 * activeColossal.state.scale,
+        radiusY: 10 * activeColossal.state.scale,
+        direction: activeColossal.encounter.direction,
+        wakeLength: 72 * activeColossal.state.scale,
+        opacity: 0.94,
+        glow: 0.1
+      });
+    }
+    if (ecologyEvent && ecologyEvent.active && ecologyEvent.type === "shadowPassage") {
+      var shadowTravel = ecologyEvent.direction > 0 ? ecologyEvent.phase : 1 - ecologyEvent.phase;
+      deepBodyDescriptors.push({
+        x: lerp(-90, width + 90, shadowTravel),
+        y: geometry.line + (height - geometry.line) * ecologyEvent.depth,
+        radiusX: 72,
+        radiusY: 18,
+        direction: ecologyEvent.direction,
+        wakeLength: 150,
+        opacity: ecologyEvent.intensity * 0.88,
+        glow: 0.04
+      });
+    }
+  }
+
+  function planktonVisibilityAt(x, y) {
+    if (!AmbientLife || !deepBodyDescriptors.length) return 1;
+    return AmbientLife.sampleBodyField(
+      x, y, deepBodyDescriptors, deepBodyDescriptors.length, bodyFieldSample
+    ).planktonMultiplier;
+  }
+
+  function drawCaustics(time, palette, geometry) {
+    if (!AmbientLife || environment.storm > 0.86) return;
+    var density = clamp(visualDensity() * 0.42, 0.18, 0.72);
+    ctx.globalAlpha = clamp(0.18 - environment.storm * 0.11, 0.035, 0.18);
+    for (var y = geometry.line + 8; y < Math.min(height, geometry.line + 86); y += 3) {
+      for (var x = (y % 5); x < width; x += 3) {
+        if (!AmbientLife.causticPixelVisible(x, y, time, geometry.line, environment.storm, cameraX, density)) continue;
+        if (planktonVisibilityAt(x, y) < 0.32) continue;
+        pixelRect(x, y, hash(x * 3.1 + y * 7.7) > 0.74 ? 2 : 1, 1, palette.bubble);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawRareEcology(time, palette, geometry, typeFilter) {
+    if (!ecologyEvent || !ecologyEvent.active) return;
+    if (typeFilter && ecologyEvent.type !== typeFilter) return;
+    var intensity = ecologyEvent.intensity;
+    var eventX = ecologyEvent.x * width;
+    if (ecologyEvent.type === "jellyBloom") {
+      var jellyCount = Math.floor((12 + width / 34) * intensity * visualDensity());
+      ctx.globalAlpha = 0.22 + intensity * 0.38;
+      for (var jelly = 0; jelly < jellyCount; jelly += 1) {
+        var jellySeed = ecologyEvent.seed * 911 + jelly * 17.3;
+        var jellyX = wrapWorldX(screenToWorldX(eventX) + (hash(jellySeed) - 0.5) * width * 0.72);
+        jellyX = worldToScreenX(jellyX);
+        var jellyY = geometry.line + 12 + hash(jellySeed + 4.1) * Math.max(16, (height - geometry.line) * 0.5);
+        var pulse = Math.sin(time * (0.52 + hash(jellySeed + 7) * 0.5) + jellySeed);
+        drawPixelMask(
+          jellyX - 2,
+          jellyY + Math.round(pulse),
+          pulse > 0 ? [" 111 ", "11111", "1 1 1"] : [" 111 ", "11 11", " 1 1 "],
+          { "1": hash(jellySeed + 9) > 0.72 ? palette.lamp : palette.bubble },
+          false
+        );
+      }
+      ctx.globalAlpha = 1;
+    } else if (ecologyEvent.type === "migration") {
+      var migrationCount = Math.floor((10 + width / 28) * intensity);
+      ctx.globalAlpha = 0.28 + intensity * 0.32;
+      for (var migrant = 0; migrant < migrationCount; migrant += 1) {
+        var lane = migrant % 5;
+        var travel = (ecologyEvent.phase * 1.45 + hash(migrant * 13.7 + ecologyEvent.seed)) % 1;
+        if (ecologyEvent.direction < 0) travel = 1 - travel;
+        var migrantX = travel * (width + 50) - 25;
+        var migrantY = geometry.line + (height - geometry.line) * clamp(ecologyEvent.depth + (lane - 2) * 0.035, 0.18, 0.76);
+        drawPixelMask(migrantX - 3, migrantY, ["1    ", " 1111", "1    "], { "1": palette.bubble }, ecologyEvent.direction < 0);
+      }
+      ctx.globalAlpha = 1;
+    } else if (ecologyEvent.type === "distantBreach") {
+      var breachPhase = ecologyEvent.phase;
+      var rise = Math.sin(breachPhase * Math.PI);
+      var breachY = geometry.line - rise * 29;
+      ctx.globalAlpha = intensity * 0.52;
+      pixelLine(eventX - 12, breachY + 7, eventX, breachY, palette.steelDark, 5);
+      pixelLine(eventX, breachY, eventX + 17, breachY + 10, palette.steelDark, 4);
+      pixelLine(eventX - 4, breachY + 3, eventX - 12, breachY - 5, palette.steelDark, 2);
+      pixelLine(eventX + 4, breachY + 4, eventX + 12, breachY - 2, palette.steelDark, 2);
+      for (var spray = 0; spray < 11; spray += 1) {
+        var sprayX = eventX + (hash(spray * 7.1 + ecologyEvent.seed) - 0.5) * 34;
+        var sprayY = geometry.line - hash(spray * 11.3 + ecologyEvent.seed) * rise * 16;
+        pixelRect(sprayX, sprayY, 1, 1, palette.foam);
+      }
+      ctx.globalAlpha = 1;
+    } else if (ecologyEvent.type === "shadowPassage") {
+      var direction = ecologyEvent.direction;
+      var shadowX = lerp(-90, width + 90, direction > 0 ? ecologyEvent.phase : 1 - ecologyEvent.phase);
+      var shadowY = geometry.line + (height - geometry.line) * ecologyEvent.depth;
+      ctx.globalAlpha = intensity * 0.22;
+      for (var segment = -5; segment <= 6; segment += 1) {
+        var segmentX = shadowX + segment * 11 * direction;
+        var radius = 7 + Math.round((1 - Math.abs(segment) / 7) * 7);
+        drawPixelDisc(segmentX, shadowY + Math.sin(time * 0.12 + segment * 0.5) * 2, radius, palette.abyss);
+      }
+      pixelLine(shadowX - direction * 48, shadowY, shadowX - direction * 77, shadowY - 16, palette.abyss, 4);
+      pixelLine(shadowX - direction * 48, shadowY, shadowX - direction * 76, shadowY + 14, palette.abyss, 4);
+      pixelLine(shadowX + direction * 8, shadowY, shadowX + direction * 23, shadowY - 21, palette.abyss, 4);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -1211,18 +3530,22 @@
         var velocityX = fluid.u[index];
         var velocityY = fluid.v[index];
         if (dye >= 0.035) {
-          ctx.globalAlpha = clamp(dye * 0.42, 0.05, 0.42);
-          ctx.fillStyle = velocityY < -0.08 ? palette.bubble : palette.timberLight;
-          ctx.fillRect(
-            Math.floor(x),
-            Math.floor(y),
-            Math.max(1, Math.floor(1 + Math.abs(velocityX) * 2.4)),
-            Math.max(1, Math.floor(1 + Math.abs(velocityY) * 1.6))
-          );
+          ctx.globalAlpha = clamp(dye * 0.44, 0.06, 0.44);
+          var materialColor = velocityY < -0.08 ? palette.bubble : palette.timberLight;
+          var pointCount = 1 + Math.floor(clamp(dye, 0, 1.3) * 5);
+          for (var point = 0; point < pointCount; point += 1) {
+            var pointSeed = index * 17.3 + point * 29.7;
+            var driftX = (hash(pointSeed) - 0.5) * 7 + clamp(velocityX, -1, 1) * point * 0.7;
+            var driftY = (hash(pointSeed + 8.1) - 0.5) * 7 + clamp(velocityY, -1, 1) * point * 0.7;
+            pixelRect(x + driftX, y + driftY, 1, 1, materialColor);
+          }
         }
-        if (plankton > 0.12 && hash(col * 19.1 + row * 31.7) < plankton * 0.72) {
-          ctx.globalAlpha = clamp(0.08 + plankton * (mode === "C" ? 0.48 : 0.32), 0.08, 0.62);
-          ctx.fillStyle = plankton > 0.52 ? palette.lamp : palette.plankton;
+        if (
+          plankton > 0.17 &&
+          hash(col * 19.1 + row * 31.7) < (plankton - 0.12) * 0.42 * planktonVisibilityAt(x, y)
+        ) {
+          ctx.globalAlpha = clamp(0.08 + plankton * 0.3, 0.08, 0.46);
+          ctx.fillStyle = plankton > 0.48 ? palette.lamp : palette.plankton;
           ctx.fillRect(Math.floor(x + hash(index * 3.9) * 4), Math.floor(y + hash(index * 7.1) * 4), 1, 1);
         }
       }
@@ -1230,16 +3553,246 @@
     ctx.globalAlpha = 1;
   }
 
-  function drawSwimmers(palette) {
-    ctx.globalAlpha = mode === "A" ? 0.58 : 0.78;
+  function swimmerPalette(swimmer, palette, traits, out) {
+    var result = out || {};
+    var variant = traits ? traits.paletteVariant : Math.floor(swimmer.seed * 4);
+    var colors = [palette.android, palette.bubble, palette.plankton, palette.kelp];
+    if (swimmer.kind === "seaGiant") colors = [palette.steelDark, palette.creature, palette.steel, palette.abyss];
+    if (swimmer.kind === "shark") colors = [palette.android, palette.plankton, palette.bubble, palette.planetLight];
+    result.base = colors[variant % colors.length];
+    result.pattern = colors[(variant + 1) % colors.length];
+    result.dark = swimmer.kind === "seaGiant" ? palette.abyss : palette.steelDark;
+    result.glow = traits && traits.glowPattern > 0 ? palette.lamp : colors[(variant + 2) % colors.length];
+    return result;
+  }
+
+  function variedPixelColor(traits, localX, localY, colors) {
+    if (!CreatureVariation || !traits) return colors.base;
+    var marking = CreatureVariation.patternAt(traits, localX, localY);
+    if (marking === 3) return colors.glow;
+    if (marking === 2) return colors.dark;
+    if (marking === 1) return colors.pattern;
+    return colors.base;
+  }
+
+  function drawVariedSwimmer(swimmer, time, palette) {
+    var traits = swimmer.variation;
+    if (!traits && CreatureVariation) {
+      traits = CreatureVariation.createTraits(swimmer.kind, swimmer.seed, swimmer.size);
+      swimmer.variation = traits;
+    }
+    if (!traits || !CreatureVariation) return false;
+
+    var speed = Math.sqrt(swimmer.vx * swimmer.vx + swimmer.vy * swimmer.vy);
+    var movementDrive = clamp(speed / Math.max(0.55, swimmer.size * 1.1), 0, 1);
+    var animationRate = clamp(swimmer.behaviorAnimationRate || 0.72, 0.3, MAX_CREATURE_ANIMATION_RATE) *
+      lerp(0.52, 1, movementDrive);
+    var pose = CreatureVariation.poseAt(traits, time * animationRate, speed, variationPose);
+    var colors = swimmerPalette(swimmer, palette, traits, variationColors);
+    var x = Math.round(swimmer.x);
+    var y = Math.round(swimmer.y + pose.bob);
+    var facing = swimmer.direction < 0 ? -1 : 1;
+    var bodyLength = traits.bodyLength;
+    var halfLength = Math.floor(bodyLength * 0.5);
+
+    if (swimmer.kind === "jelly") {
+      var bellWidth = Math.max(4, bodyLength);
+      var bellHeight = Math.max(2, Math.round(traits.bodyHeight * pose.pulse));
+      for (var bellX = -Math.floor(bellWidth / 2); bellX <= Math.floor(bellWidth / 2); bellX += 1) {
+        var bellU = bellX / Math.max(1, bellWidth * 0.5);
+        var bellTop = -Math.round(Math.sqrt(Math.max(0, 1 - bellU * bellU)) * bellHeight);
+        for (var bellY = bellTop; bellY <= 0; bellY += 1) {
+          pixelRect(x + bellX, y + bellY, 1, 1, variedPixelColor(traits, bellX, bellY, colors));
+        }
+      }
+      if (swimmer.tentacles && swimmer.tentacles.length) {
+        for (var jellyLeg = 0; jellyLeg < swimmer.tentacles.length; jellyLeg += 1) {
+          var jellyChain = swimmer.tentacles[jellyLeg].points;
+          for (var jellyPointIndex = 1; jellyPointIndex < jellyChain.length; jellyPointIndex += 1) {
+            pixelLine(
+              jellyChain[jellyPointIndex - 1].x, jellyChain[jellyPointIndex - 1].y,
+              jellyChain[jellyPointIndex].x, jellyChain[jellyPointIndex].y,
+              colors.base, 1
+            );
+          }
+        }
+      } else {
+        for (var fallbackLeg = 0; fallbackLeg < traits.tentacleCount; fallbackLeg += 1) {
+          var fallbackRootX = x + Math.round((fallbackLeg / Math.max(1, traits.tentacleCount - 1) - 0.5) * bellWidth * 0.72);
+          pixelLine(fallbackRootX, y, fallbackRootX + Math.sin(time * 0.24 + fallbackLeg) * 2, y + traits.tentacleLength, colors.base, 1);
+        }
+      }
+      return true;
+    }
+
+    if (swimmer.kind === "hectapus") {
+      var mantleWidth = Math.max(5, Math.round(bodyLength * 0.72));
+      var mantleHalf = Math.floor(mantleWidth / 2);
+      for (var mantleX = -mantleHalf; mantleX <= mantleHalf; mantleX += 1) {
+        var mantleU = mantleX / Math.max(1, mantleHalf);
+        var mantleHeight = Math.max(1, Math.round(Math.sqrt(Math.max(0, 1 - mantleU * mantleU)) * traits.bodyHeight * 0.5));
+        for (var mantleY = -mantleHeight; mantleY <= mantleHeight; mantleY += 1) {
+          pixelRect(x + mantleX * facing, y + mantleY - 1, 1, 1, variedPixelColor(traits, mantleX, mantleY, colors));
+        }
+      }
+      if (swimmer.tentacles && swimmer.tentacles.length) {
+        for (var arm = 0; arm < swimmer.tentacles.length; arm += 1) {
+          var armChain = swimmer.tentacles[arm].points;
+          for (var armPointIndex = 1; armPointIndex < armChain.length; armPointIndex += 1) {
+            pixelLine(
+              armChain[armPointIndex - 1].x, armChain[armPointIndex - 1].y,
+              armChain[armPointIndex].x, armChain[armPointIndex].y,
+              colors.base, 1
+            );
+          }
+        }
+      }
+      pixelRect(x + facing * Math.max(1, mantleHalf - 1), y - 2, 1, 1, colors.glow);
+      return true;
+    }
+
+    if (swimmer.kind === "eel") {
+      var eelLength = Math.max(9, bodyLength + traits.tailLength);
+      var eelPriorX = x + facing * Math.floor(eelLength * 0.45);
+      var eelPriorY = y;
+      for (var eelSegment = 0; eelSegment <= eelLength; eelSegment += 1) {
+        var eelAmount = eelSegment / eelLength;
+        var eelX = x + facing * Math.round(eelLength * (0.45 - eelAmount));
+        var eelWave = Math.sin(pose.phase - eelAmount * Math.PI * 2.2) * (0.4 + eelAmount * 1.7);
+        var eelY = y + Math.round(eelWave);
+        pixelLine(eelPriorX, eelPriorY, eelX, eelY, eelSegment < bodyLength * 0.62 ? colors.base : colors.pattern, eelAmount < 0.46 ? 2 : 1);
+        eelPriorX = eelX;
+        eelPriorY = eelY;
+      }
+      pixelRect(x + facing * Math.floor(eelLength * 0.39), y - 1, 1, 1, colors.glow);
+      pixelRect(x + facing * Math.floor(eelLength * 0.18), y + 1, 2, 1, colors.pattern);
+      return true;
+    }
+
+    if (swimmer.kind === "ray") {
+      var rayHalf = Math.max(4, Math.floor(bodyLength * 0.5));
+      var rayWing = Math.max(3, Math.round(traits.finSpan * 0.82));
+      for (var rayX = -rayHalf; rayX <= rayHalf; rayX += 1) {
+        var rayEnvelope = 1 - Math.abs(rayX) / Math.max(1, rayHalf);
+        var rayHalfHeight = Math.max(1, Math.round(rayEnvelope * rayWing));
+        var rayCenterY = Math.round(Math.sin(pose.phase + rayX * 0.22) * 0.45);
+        for (var rayY = -rayHalfHeight; rayY <= rayHalfHeight; rayY += 1) {
+          var rayEdge = Math.abs(rayY) === rayHalfHeight;
+          pixelRect(x + facing * rayX, y + rayCenterY + rayY, 1, 1, rayEdge ? colors.pattern : colors.base);
+        }
+      }
+      var rayTailRoot = x - facing * rayHalf;
+      pixelLine(rayTailRoot, y, rayTailRoot - facing * traits.tailLength, y + Math.round(pose.tail * 0.25), colors.base, 1);
+      pixelRect(x + facing * Math.max(1, rayHalf - 2), y - 1, 1, 1, colors.glow);
+      return true;
+    }
+
+    if (swimmer.kind === "fish") {
+      var fishHalf = Math.max(3, Math.floor(bodyLength * 0.5));
+      var fishHeight = Math.max(2, Math.floor(traits.bodyHeight * 0.5));
+      for (var fishX = -fishHalf; fishX <= fishHalf; fishX += 1) {
+        var fishEnvelope = Math.sqrt(Math.max(0, 1 - Math.pow(fishX / Math.max(1, fishHalf), 2)));
+        var fishHalfHeight = Math.max(0, Math.floor(fishEnvelope * fishHeight));
+        for (var fishY = -fishHalfHeight; fishY <= fishHalfHeight; fishY += 1) {
+          var fishStripe = fishX === 0 || fishX === -1;
+          pixelRect(x + facing * fishX, y + fishY, 1, 1, fishStripe ? colors.pattern : colors.base);
+        }
+      }
+      var fishTailRoot = x - facing * fishHalf;
+      var fishTailTip = fishTailRoot - facing * Math.max(2, traits.tailLength);
+      pixelLine(fishTailRoot, y, fishTailTip, y - Math.max(1, traits.tailSpan), colors.pattern, 1);
+      pixelLine(fishTailRoot, y, fishTailTip, y + Math.max(1, traits.tailSpan), colors.pattern, 1);
+      pixelRect(x + facing * Math.max(1, fishHalf - 1), y - 1, 1, 1, colors.glow);
+      return true;
+    }
+
+    if (swimmer.kind === "shark") {
+      var sharkHalf = Math.max(6, Math.floor(bodyLength * 0.5));
+      var sharkHeight = Math.max(2, Math.floor(traits.bodyHeight * 0.5));
+      for (var sharkX = -sharkHalf; sharkX <= sharkHalf; sharkX += 1) {
+        var sharkU = sharkX / sharkHalf;
+        var sharkTaper = sharkU < -0.3 ? clamp((sharkU + 1) / 0.7, 0.15, 1) : 1;
+        var sharkEnvelope = Math.sqrt(Math.max(0, 1 - sharkU * sharkU)) * sharkTaper;
+        var sharkHalfHeight = Math.max(0, Math.floor(sharkEnvelope * sharkHeight));
+        for (var sharkY = -sharkHalfHeight; sharkY <= sharkHalfHeight; sharkY += 1) {
+          pixelRect(x + facing * sharkX, y + sharkY, 1, 1, sharkY === sharkHalfHeight ? colors.pattern : colors.base);
+        }
+      }
+      var sharkTailRoot = x - facing * sharkHalf;
+      var sharkTailTip = sharkTailRoot - facing * traits.tailLength;
+      pixelLine(sharkTailRoot, y, sharkTailTip, y - traits.tailSpan, colors.base, 2);
+      pixelLine(sharkTailRoot, y, sharkTailTip, y + traits.tailSpan, colors.base, 2);
+      var sharkDorsalX = x - facing * 1;
+      pixelLine(sharkDorsalX, y - 1, sharkDorsalX - facing * 2, y - traits.dorsalHeight, colors.base, 1);
+      pixelRect(x + facing * Math.max(2, sharkHalf - 2), y - 1, 1, 1, colors.glow);
+      return true;
+    }
+
+    for (var bodyX = 0; bodyX <= bodyLength; bodyX += 1) {
+      var bodyU = bodyX / Math.max(1, bodyLength) * 2 - 1;
+      var profile = CreatureVariation.bodyProfileAt(traits, pose, bodyU, variationBody);
+      var bodyScreenX = x + facing * (bodyX - halfLength);
+      var bodyCenterY = y + Math.round(profile.center);
+      var bodyHalfHeight = Math.max(1, Math.round(profile.halfHeight));
+      if (swimmer.kind === "ray") bodyHalfHeight = Math.max(1, Math.round(bodyHalfHeight * 0.5));
+      for (var bodyY = -bodyHalfHeight; bodyY <= bodyHalfHeight; bodyY += 1) {
+        pixelRect(bodyScreenX, bodyCenterY + bodyY, 1, 1, variedPixelColor(traits, bodyX, bodyY, colors));
+      }
+    }
+
+    var tailRootX = x - facing * halfLength;
+    var tailTipX = tailRootX - facing * traits.tailLength;
+    var tailTipY = y + Math.round(pose.tail * 0.65);
+    if (traits.tailLength > 0) {
+      pixelLine(tailRootX, y, tailTipX, tailTipY, colors.base, swimmer.kind === "seaGiant" ? 2 : 1);
+      pixelLine(tailTipX, tailTipY, tailTipX - facing * Math.max(1, traits.tailSpan), tailTipY - traits.tailSpan, colors.base, 1);
+      pixelLine(tailTipX, tailTipY, tailTipX - facing * Math.max(1, traits.tailSpan), tailTipY + traits.tailSpan, colors.base, 1);
+    }
+
+    if (traits.finSpan > 0) {
+      var finRootX = x + facing * Math.round(bodyLength * 0.08);
+      var finReach = Math.max(1, Math.round(traits.finSpan * (0.72 + Math.abs(pose.fin) * 0.24)));
+      if (swimmer.kind === "ray") finReach = Math.max(finReach, traits.finSpan);
+      pixelLine(finRootX, y, finRootX - facing * Math.round(finReach * 0.28), y - finReach, colors.pattern, 1);
+      pixelLine(finRootX, y, finRootX - facing * Math.round(finReach * 0.28), y + finReach, colors.pattern, 1);
+    }
+    if (traits.dorsalHeight > 0 && swimmer.kind !== "eel" && swimmer.kind !== "ray") {
+      var dorsalX = x - facing * Math.round(bodyLength * 0.08);
+      pixelLine(dorsalX, y - 1, dorsalX - facing * Math.round(traits.dorsalHeight * 0.5), y - traits.dorsalHeight, colors.dark, 1);
+    }
+
+    var eyeX = x + facing * Math.max(1, halfLength - 1);
+    pixelRect(eyeX, y - 1, 1, 1, colors.glow);
+    if (traits.scarCount > 0) {
+      for (var scar = 0; scar < traits.scarCount; scar += 1) {
+        var scarX = x + facing * Math.round((scar / Math.max(1, traits.scarCount) - 0.25) * bodyLength * 0.5);
+        pixelRect(scarX, y + (scar % 2 ? 1 : -1), 1, 1, colors.dark);
+      }
+    }
+    return true;
+  }
+
+  function drawSwimmers(time, palette, kindFilter) {
     for (var i = 0; i < swimmers.length; i += 1) {
       var swimmer = swimmers[i];
-      var x = Math.floor(swimmer.x);
-      var y = Math.floor(swimmer.y);
-      var facing = swimmer.direction;
-      ctx.fillStyle = swimmer.energy > 0.7 ? palette.bubble : palette.plankton;
-      ctx.fillRect(x - (facing < 0 ? 2 : 0), y, 3, 1);
-      ctx.fillRect(x - facing * 2, y + (i % 2 ? 1 : -1), 1, 1);
+      if (kindFilter && swimmer.kind !== kindFilter) continue;
+      var glow = (swimmer.behaviorGlowBoost || 0) + (swimmer.variation ? swimmer.variation.glowStrength * 0.18 : 0);
+      var visibility = 0.76;
+      if (AmbientLife) {
+        visibility = AmbientLife.sampleDepth(
+          swimmer.y, waterlineY(), height, environment.storm, glow, depthSample
+        ).visibility * (swimmer.eventVisibilityScale || 1);
+      }
+      ctx.globalAlpha = clamp(visibility, 0.18, 0.9);
+      if (!drawVariedSwimmer(swimmer, time, palette)) {
+        drawPixelMask(
+          Math.floor(swimmer.x) - 2,
+          Math.floor(swimmer.y) - 1,
+          ["1   ", " 111", "1   "],
+          { "1": palette.bubble },
+          swimmer.direction < 0
+        );
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -1247,93 +3800,385 @@
   function drawWeather(time, palette, line) {
     var storm = environment.storm;
     if (storm < 0.18) return;
-    ctx.globalAlpha = clamp((storm - 0.12) * 0.45, 0, 0.36);
-    ctx.fillStyle = palette.steelDark;
-    for (var cloud = 0; cloud < 26; cloud += 1) {
-      var cloudWorldX = wrapWorldX(
-        WORLD_WRAP_LEFT + hash(cloud * 17.1) * (WORLD_WRAP_RIGHT - WORLD_WRAP_LEFT) + time * environment.wind * 2.1
-      );
-      var cloudX = worldToScreenX(cloudWorldX);
-      var cloudY = 9 + hash(cloud * 11.7) * Math.max(8, line * 0.2);
-      var cloudWidth = 22 + Math.floor(hash(cloud * 17.9) * 23);
-      if (cloudX + cloudWidth < 0 || cloudX > width) continue;
-      ctx.fillRect(Math.floor(cloudX), Math.floor(cloudY), cloudWidth, 3 + Math.floor(storm * 4));
-    }
-    ctx.globalAlpha = clamp((storm - 0.28) * 0.5, 0, 0.42);
-    var rainCount = Math.floor(82 * storm);
-    for (var drop = 0; drop < rainCount; drop += 1) {
-      var phase = time * (18 + storm * 16) + drop * 23.7;
-      var rainWorldX = wrapWorldX(
-        WORLD_WRAP_LEFT + hash(drop * 7.9) * (WORLD_WRAP_RIGHT - WORLD_WRAP_LEFT) + phase * environment.wind * 0.22
-      );
-      var rainX = worldToScreenX(rainWorldX);
-      if (rainX < -4 || rainX > width + 4) continue;
-      var rainY = phase % Math.max(1, line + 9);
-      pixelLine(rainX, rainY, rainX - environment.wind, rainY + 3 + storm * 3, palette.bubble, 1);
+    var cloudMasks = [
+      ["1111", "111 ", " 11 "],
+      [" 111", "1111", "11  "],
+      ["11  ", "1111", " 111"]
+    ];
+    var cloudCell = 3;
+    var frontDrift = Math.floor(time * environment.wind * 0.42);
+    var density = visualDensity();
+    ctx.globalAlpha = clamp((storm - 0.11) * 0.76, 0, 0.68);
+    for (var cloudX = -cloudCell * 2; cloudX < width + cloudCell * 2; cloudX += cloudCell) {
+      var cloudWorldX = Math.floor(screenToWorldX(cloudX) + frontDrift);
+      var broadShape = Math.sin(cloudWorldX * 0.041) * 4 + Math.sin(cloudWorldX * 0.017 + 1.9) * 5;
+      var cloudBase = Math.floor(8 + storm * 27 + broadShape);
+      for (var cloudY = 2; cloudY < cloudBase; cloudY += cloudCell) {
+        var cellX = Math.floor(cloudWorldX / cloudCell);
+        var cellY = Math.floor(cloudY / cloudCell);
+        var grain = hash(cellX * 19.17 + cellY * 47.31);
+        var edgeDepth = cloudBase - cloudY;
+        var threshold = edgeDepth < 7 ? 0.56 - edgeDepth * 0.045 : 0.16;
+        var densityWeather = clamp((density - DENSITY_PROFILES.A) / (DENSITY_PROFILES.C - DENSITY_PROFILES.A), 0, 1);
+        threshold += lerp(0.14, -0.08, densityWeather);
+        if (grain < threshold) continue;
+        var cloudColor = edgeDepth < 8 && hash(cellX * 7.3 + cellY) > 0.42
+          ? palette.steel
+          : palette.steelDark;
+        var maskIndex = Math.abs(cellX + cellY) % cloudMasks.length;
+        drawPixelMask(
+          cloudX,
+          cloudY,
+          cloudMasks[maskIndex],
+          { "1": cloudColor },
+          (cellX + Math.floor(density * 10)) % 2 === 0
+        );
+      }
     }
     if (storm > 0.82 && hash(Math.floor(time * 1.7) * 13.1) > 0.965) {
       ctx.globalAlpha = 0.3;
-      ctx.fillStyle = palette.foam;
       pixelRect(0, 0, width, line, palette.foam);
       ctx.globalAlpha = 0.92;
       var boltX = worldToScreenX(
         WORLD_WRAP_LEFT + hash(Math.floor(time * 1.7) * 29.3) * (WORLD_WRAP_RIGHT - WORLD_WRAP_LEFT)
       );
-      ctx.fillRect(Math.floor(boltX), 18, 1, Math.max(3, Math.floor(line * 0.16)));
-      ctx.fillRect(Math.floor(boltX - 2), Math.floor(line * 0.16), 3, 1);
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  function drawFluidDebug(palette) {
-    if (!debugFlow || !fluid) return;
-    ctx.globalAlpha = 0.62;
-    for (var row = 1; row < fluid.rows; row += 3) {
-      for (var col = 1; col < fluid.cols; col += 3) {
-        var index = fluidIndex(col, row);
-        if (fluid.solid[index]) continue;
-        var x = col * FLUID_CELL;
-        var y = fluid.line + row * FLUID_CELL;
-        pixelLine(x, y, x + fluid.u[index] * 8, y + fluid.v[index] * 8, palette.bubble, 1);
+      var boltY = 13;
+      var boltSegment = 0;
+      while (boltY < line - 8) {
+        var nextBoltY = Math.min(line - 8, boltY + 4 + Math.floor(hash(boltSegment * 13.7 + time) * 5));
+        var nextBoltX = boltX + Math.floor((hash(boltSegment * 31.3 + time) - 0.5) * 7);
+        pixelLine(boltX, boltY, nextBoltX, nextBoltY, palette.foam, 1);
+        boltX = nextBoltX;
+        boltY = nextBoltY;
+        boltSegment += 1;
       }
     }
     ctx.globalAlpha = 1;
   }
 
-  function drawParticles(palette) {
-    ctx.globalAlpha = mode === "A" ? 0.63 : mode === "B" ? 0.75 : 0.86;
+  function drawFluidDebug(time, palette) {
+    if (!debugFlow || !fluid) return;
+    var directions = [
+      [1, 0],
+      [1, 1],
+      [0, 1],
+      [-1, 1],
+      [-1, 0],
+      [-1, -1],
+      [0, -1],
+      [1, -1]
+    ];
+    ctx.globalAlpha = 0.9;
+    for (var row = 2; row < fluid.rows; row += 5) {
+      for (var col = 2; col < fluid.cols; col += 5) {
+        var index = fluidIndex(col, row);
+        if (fluid.solid[index]) continue;
+        var x = col * FLUID_CELL;
+        var y = fluid.line + row * FLUID_CELL;
+        var speed = Math.sqrt(fluid.u[index] * fluid.u[index] + fluid.v[index] * fluid.v[index]);
+        if (speed < 0.025) continue;
+        var directionIndex = Math.round(Math.atan2(fluid.v[index], fluid.u[index]) / (Math.PI / 4));
+        directionIndex = (directionIndex + 8) % 8;
+        var directionX = directions[directionIndex][0];
+        var directionY = directions[directionIndex][1];
+        var perpendicularX = -directionY;
+        var perpendicularY = directionX;
+        var tailLength = speed > 1.2 ? 12 : speed > 0.45 ? 10 : 8;
+
+        var phase = (time * (2.2 + Math.min(speed, 1.8)) + hash(row * 43.7 + col * 17.3) * 3) % 3;
+        for (var bead = phase; bead < tailLength - 3; bead += 3) {
+          pixelRect(x + directionX * bead, y + directionY * bead, 1, 1, palette.foam);
+        }
+        pixelRect(x + directionX * tailLength, y + directionY * tailLength, 1, 1, palette.sun);
+        pixelRect(
+          x + directionX * (tailLength - 1) + perpendicularX,
+          y + directionY * (tailLength - 1) + perpendicularY,
+          1,
+          1,
+          palette.sun
+        );
+        pixelRect(
+          x + directionX * (tailLength - 1) - perpendicularX,
+          y + directionY * (tailLength - 1) - perpendicularY,
+          1,
+          1,
+          palette.sun
+        );
+        pixelRect(
+          x + directionX * (tailLength - 2) + perpendicularX * 2,
+          y + directionY * (tailLength - 2) + perpendicularY * 2,
+          1,
+          1,
+          palette.sun
+        );
+        pixelRect(
+          x + directionX * (tailLength - 2) - perpendicularX * 2,
+          y + directionY * (tailLength - 2) - perpendicularY * 2,
+          1,
+          1,
+          palette.sun
+        );
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawParticles(palette, kindFilter) {
+    var eventParticleScale = 1;
+    if (ecologyEvent && ecologyEvent.active && ecologyEvent.type === "deepQuiet") {
+      eventParticleScale = 1 - ecologyEvent.intensity * 0.62;
+    }
     for (var i = 0; i < particles.length; i += 1) {
       var particle = particles[i];
-      ctx.fillStyle =
-        particle.kind === "bubble"
-          ? palette.bubble
-          : particle.kind === "silt"
-            ? palette.timberLight
-            : palette.plankton;
-      var size = particle.kind === "bubble" && mode === "C" && particle.seed > 0.75 ? 2 : 1;
-      ctx.fillRect(Math.floor(particle.x), Math.floor(particle.y), size, 1);
+      if (kindFilter && particle.kind !== kindFilter) continue;
+      var absence = particle.kind === "plankton" ? planktonVisibilityAt(particle.x, particle.y) : 1;
+      if (particle.kind === "plankton" && hash(particle.seed * 991) > absence * eventParticleScale) continue;
+      if (particle.kind === "bubble") {
+        ctx.globalAlpha = 0.62;
+        ctx.fillStyle = palette.bubble;
+      } else if (particle.kind === "silt") {
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = particle.seed > 0.52 ? palette.timberLight : palette.kelp;
+      } else {
+        ctx.globalAlpha = (0.3 + particle.seed * 0.2) * absence * eventParticleScale;
+        ctx.fillStyle = particle.seed > 0.9 ? palette.lamp : palette.plankton;
+      }
+      pixelRect(particle.x, particle.y, 1, 1, ctx.fillStyle);
+      if (particle.kind === "bubble" && particle.seed > 0.72) {
+        pixelRect(particle.x + 1, particle.y - 1, 1, 1, palette.bubble);
+      } else if (particle.kind === "plankton" && particle.seed > 0.965) {
+        pixelRect(particle.x + 1, particle.y, 1, 1, ctx.fillStyle);
+      }
     }
     ctx.globalAlpha = 1;
   }
 
   function drawSurface(time, palette, line, raftX) {
-    ctx.fillStyle = palette.foam;
-    for (var x = 0; x < width; x += 1) {
-      var top = Math.floor(surfaceY(x, time, line, raftX));
-      if ((x + Math.floor(time * 2.2)) % 7 !== 0) ctx.fillRect(x, top, 1, 1);
+    var foamMasks = [
+      [" 11 ", "1  1"],
+      ["1 1", " 2 "],
+      [" 1 ", "1 1"]
+    ];
+    var densityAmount = clamp((visualDensity() - 0.3) / 1.5, 0, 1);
+    var crestSpacing = Math.round(lerp(14, 5, densityAmount));
+    var crestThreshold = lerp(0.64, 0.34, densityAmount);
+    var lastCrest = -20;
+    for (var x = 1; x < width - 1; x += 1) {
+      var centerY = surfaceY(x, time, line, raftX);
+      var top = Math.round(centerY);
+      var leftY = surfaceY(x - 2, time, line, raftX);
+      var rightY = surfaceY(x + 2, time, line, raftX);
+      var slope = rightY - leftY;
+      var curvature = leftY + rightY - centerY * 2;
+      var worldX = Math.round(screenToWorldX(x));
+
+      var isCrest = top <= leftY && top <= rightY && curvature > 0.08;
+      var energetic = Math.abs(slope) > 0.48 || environment.storm > 0.42;
+      if (
+        x - lastCrest > crestSpacing &&
+        (isCrest || energetic) &&
+        hash(worldX * 0.73) > crestThreshold
+      ) {
+        var maskIndex = Math.abs(worldX) % foamMasks.length;
+        drawPixelMask(
+          x - 2,
+          top - 1,
+          foamMasks[maskIndex],
+          { "1": palette.foam, "2": palette.bubble },
+          slope > 0
+        );
+        lastCrest = x;
+      }
     }
-    ctx.globalAlpha = 0.5;
-    ctx.fillStyle = palette.bubble;
+
+    ctx.globalAlpha = 0.62;
     for (var i = 0; i < ripples.length; i += 1) {
       var ripple = ripples[i];
       var radius = ripple.age * 8;
-      ctx.fillRect(Math.floor(ripple.x - radius), geometryLineAt(ripple.x, time, line, raftX) + 1, Math.max(1, Math.floor(radius * 2)), 1);
+      var sides = [-1, 1];
+      for (var side = 0; side < sides.length; side += 1) {
+        var rippleX = ripple.x + radius * sides[side];
+        if (rippleX < -5 || rippleX > width + 5) continue;
+        drawPixelMask(
+          rippleX - 2,
+          surfaceY(rippleX, time, line, raftX),
+          [" 1 1 ", "1 2 1"],
+          { "1": palette.bubble, "2": palette.foam },
+          sides[side] < 0
+        );
+      }
     }
     ctx.globalAlpha = 1;
   }
 
-  function geometryLineAt(x, time, line, raftX) {
-    return Math.floor(surfaceY(x, time, line, raftX));
+  function drawPlatformMotion(time, palette, geometry, left, span, deck, towerX) {
+    var activity = tuning.platformActivity;
+    var events = platformLife && platformLife.events;
+    var cartTravel = Math.max(30, span - 78);
+    var cartX = left + 24 + (time * 2.3 * activity) % cartTravel;
+    drawPixelMask(
+      cartX,
+      deck - 5,
+      [" 1111 ", "122221", " 3  3 "],
+      { "1": palette.timberLight, "2": palette.steel, "3": palette.abyss },
+      false
+    );
+
+    var liftPylon = geometry.pylons[Math.min(4, geometry.pylons.length - 1)];
+    var liftAmount = (Math.sin(time * 0.43 * activity) + 1) * 0.5;
+    var liftY = lerp(deck - 2, deck + 10, liftAmount);
+    drawPixelMask(
+      liftPylon - 3,
+      liftY,
+      ["11111", "1 2 1", "11111"],
+      { "1": palette.steel, "2": palette.lamp },
+      false
+    );
+
+    var craneX = left + Math.floor(span * 0.16);
+    var hookAmount = events && events.craneActive
+      ? events.craneHook
+      : (Math.sin(time * 0.7 * activity) + 1) * 0.5;
+    var hookY = deck - 31 + Math.round(hookAmount * 10);
+    for (var ropeY = deck - 46; ropeY < hookY; ropeY += 3) {
+      pixelRect(craneX, ropeY, 1, 1, palette.steel);
+    }
+    drawPixelMask(
+      craneX - 2,
+      hookY,
+      ["1 1", " 1 ", "111"],
+      { "1": palette.lamp },
+      false
+    );
+
+    var steamX = left + Math.floor(span * 0.43);
+    for (var puff = 0; puff < 7; puff += 1) {
+      var puffAge = (time * 0.75 * activity + puff * 0.73) % 6;
+      var puffDrift = Math.sin(time * 0.4 + puff * 2.1) * puffAge * 0.45;
+      ctx.globalAlpha = clamp(0.62 - puffAge * 0.085, 0.08, 0.62);
+      pixelRect(steamX + puffDrift, deck - 59 - puffAge * 2, 1, 1, palette.bubble);
+      if (puffAge > 2.5) pixelRect(steamX + puffDrift + 2, deck - 60 - puffAge * 2, 1, 1, palette.foam);
+    }
+    ctx.globalAlpha = 1;
+
+    var flagFrame = Math.floor(time * 4 * activity) % 3;
+    var flagMasks = [
+      ["11   ", "1111 ", "11   "],
+      ["111  ", " 1111", "111  "],
+      ["1111 ", "11 11", "1111 "]
+    ];
+    drawPixelMask(
+      towerX + 5,
+      deck - 101,
+      flagMasks[flagFrame] || flagMasks[0],
+      { "1": palette.planetLight },
+      false
+    );
+
+    var beaconPhase = events ? (events.beacon ? Math.floor(time * 5) % 3 : 9) : Math.floor(time * 3 * activity) % 8;
+    if (beaconPhase < 3) {
+      pixelRect(towerX + 3 + beaconPhase - 1, deck - 99 - Math.abs(beaconPhase - 1), 1, 1, palette.lamp);
+    }
+    if (events) {
+      var doorX = left + events.doorX * span;
+      var doorHeight = Math.max(1, Math.round(events.doorOpen * 5));
+      pixelRect(doorX, deck - 7, 5, 7, palette.steelDark);
+      if (doorHeight > 1) pixelRect(doorX + 1, deck - doorHeight, 3, doorHeight, palette.abyss);
+
+      if (events.fishingActive) {
+        var fishingX = left + events.fishingX * span;
+        var fishingEndY = geometry.line + events.fishingDepth * Math.max(18, geometry.foundationTop - geometry.line);
+        var previousFishingX = fishingX;
+        var previousFishingY = deck - 1;
+        for (var lineStep = 1; lineStep <= 9; lineStep += 1) {
+          var lineAmount = lineStep / 9;
+          var nextFishingX = fishingX + Math.sin(time * 0.31 + lineAmount * 2.8) * events.fishingSway * 10 * lineAmount;
+          var nextFishingY = lerp(deck - 1, fishingEndY, lineAmount);
+          pixelLine(previousFishingX, previousFishingY, nextFishingX, nextFishingY, palette.steel, 1);
+          previousFishingX = nextFishingX;
+          previousFishingY = nextFishingY;
+        }
+        pixelRect(previousFishingX, previousFishingY, 1, 1, palette.lamp);
+      }
+    }
+  }
+
+  function drawBuildingWindow(x, y, lit, palette, seed) {
+    var damaged = hash(seed * 3.17) > 0.89;
+    drawPixelMask(
+      x - 1,
+      y - 1,
+      damaged
+        ? ["111111111", "1222122 1", "12 212221", "133313331", "1111 1111"]
+        : ["111111111", "122212221", "122212221", "133313331", "111111111"],
+      {
+        "1": palette.steel,
+        "2": lit ? palette.lamp : palette.abyss,
+        "3": palette.steelDark
+      },
+      false
+    );
+  }
+
+  function drawPlatformDistress(time, palette, geometry, left, right, deck, blockLeft, mainBlockWidth, upperBlockLeft, upperBlockWidth, towerX) {
+    var scars = [
+      { x: blockLeft + 18, y: deck - 33, mask: ["1  1 ", " 11 1", "1   1"] },
+      { x: blockLeft + Math.floor(mainBlockWidth * 0.54), y: deck - 15, mask: [" 1 1", "1 1 ", "  1 "] },
+      { x: upperBlockLeft + Math.floor(upperBlockWidth * 0.38), y: deck - 52, mask: ["1  1", " 11 ", "1  1"] }
+    ];
+    for (var scar = 0; scar < scars.length; scar += 1) {
+      drawPixelMask(scars[scar].x, scars[scar].y, scars[scar].mask, { "1": palette.abyss }, scar % 2 === 1);
+    }
+
+    drawPixelMask(
+      blockLeft + Math.floor(mainBlockWidth * 0.72),
+      deck - 32,
+      ["1111111", "1222221", "1211121", "1222221", "1111111"],
+      { "1": palette.steelDark, "2": palette.steel },
+      false
+    );
+    drawPixelMask(
+      upperBlockLeft + upperBlockWidth - 18,
+      deck - 50,
+      ["111111", "12  21", "122221", "1 11 1", "111111"],
+      { "1": palette.timberLight, "2": palette.steelDark },
+      false
+    );
+
+    for (var roofX = blockLeft + 3; roofX < right - 9; roofX += 7) {
+      var roofDent = hash(roofX * 0.71) > 0.78 ? 1 : 0;
+      drawPixelMask(
+        roofX,
+        deck - 40 + roofDent,
+        roofDent ? ["111  ", " 1111"] : ["11111", " 2 2 "],
+        { "1": palette.steel, "2": palette.steelDark },
+        false
+      );
+    }
+
+    for (var p = 0; p < geometry.pylons.length; p += 3) {
+      var rustY = deck + 13 + (p * 17) % Math.max(8, geometry.line - deck - 18);
+      drawPixelMask(
+        geometry.pylons[p] - 2,
+        rustY,
+        ["1  ", " 1 ", "  1", " 1 "],
+        { "1": palette.planetDark },
+        p % 2 === 1
+      );
+    }
+
+    var dishSweep = -0.8 + Math.sin(time * 0.19) * 0.28;
+    pixelLine(towerX + 3, deck - 39, towerX + 3, deck - 47, palette.steel, 1);
+    pixelArc(towerX + 3, deck - 47, 6, dishSweep, dishSweep + Math.PI * 0.72, palette.steel, 1);
+    pixelRect(towerX + 3, deck - 47, 1, 1, palette.lamp);
+
+    drawPixelMask(
+      left + 13,
+      deck - 46,
+      ["1     1", " 11 11 ", "  111  ", " 2   2 "],
+      { "1": palette.steelDark, "2": palette.timberLight },
+      false
+    );
   }
 
   function drawPlatform(time, palette, geometry) {
@@ -1346,12 +4191,6 @@
 
     moduleSpan(left, deck, span, 9, palette.timber, palette.timberLight, palette.steelDark, 211, 10);
     moduleSpan(left - 3, deck - 2, span + 3, 3, palette.timberLight, palette.foam, palette.timber, 223, 8);
-
-    var lowerDeck = geometry.line - 12;
-    moduleSpan(
-      left - 8, lowerDeck, Math.floor(span * 0.52), 5,
-      palette.timber, palette.timberLight, palette.steelDark, 229, 9
-    );
 
     for (var p = 0; p < geometry.pylons.length; p += 1) {
       var px = Math.floor(geometry.pylons[p]);
@@ -1382,21 +4221,22 @@
       palette.timberLight, palette.foam, palette.timber, 263, 9
     );
 
+    var roomIndex = 0;
     for (var floor = 0; floor < 3; floor += 1) {
       var wy = deck - 29 + floor * 10;
-      for (var wx = blockLeft + 7; wx < right - 10; wx += 13) {
-        var lit = hash(wx * 0.13 + floor * 9 + Math.floor(time / 8)) > 0.23;
+      for (var wx = blockLeft + 7; wx < right - 12; wx += 14) {
+        var lit = hash(wx * 0.13 + floor * 9 + Math.floor(time / 55)) > 0.23;
+        if (platformLife && AmbientLife) {
+          var roomOffset = (roomIndex % platformLife.roomCount) * AmbientLife.ROOM_STRIDE;
+          lit = platformLife.rooms[roomOffset + AmbientLife.ROOM_FIELDS.lit] > 0.5 &&
+            platformLife.rooms[roomOffset + AmbientLife.ROOM_FIELDS.flicker] < 0.5;
+        }
         if (
           structure.stress > 0.72 &&
-          hash(wx * 0.37 + floor * 13 + Math.floor(time * 5)) < (structure.stress - 0.72) * 0.46
+          hash(wx * 0.37 + floor * 13 + Math.floor(time / 6)) < (structure.stress - 0.72) * 0.18
         ) lit = false;
-        ctx.fillStyle = lit ? palette.lamp : palette.steelDark;
-        ctx.fillRect(Math.floor(wx), wy, 5, 4);
-        if (lit && mode === "C") {
-          ctx.globalAlpha = 0.16;
-          ctx.fillRect(Math.floor(wx - 1), wy - 1, 7, 6);
-          ctx.globalAlpha = 1;
-        }
+        drawBuildingWindow(wx, wy, lit, palette, wx + floor * 31);
+        roomIndex += 1;
       }
     }
 
@@ -1418,33 +4258,40 @@
       palette.steel, palette.timberLight, palette.steelDark, 307, 8
     );
 
-    for (var i = 0; i < 38; i += 1) {
-      var deckChoice = i % 5 === 0 ? lowerDeck - 2 : i % 4 === 0 ? deck - 38 : deck - 2;
-      var startX = deckChoice === lowerDeck - 2 ? left - 4 : deckChoice === deck - 38 ? blockLeft + 8 : left + 4;
-      var usable = deckChoice === lowerDeck - 2 ? span * 0.48 : deckChoice === deck - 38 ? span * 0.62 : span - 15;
-      var baseX = startX + hash(i * 4.77) * usable;
-      var roam = Math.sin(time * (0.045 + (i % 7) * 0.006) + i * 3.9) * (2 + (i % 4));
+    drawPlatformDistress(
+      time, palette, geometry, left, right, deck,
+      blockLeft, mainBlockWidth, upperBlockLeft, upperBlockWidth, towerX
+    );
+
+    var platformPeople = platformResidentCount();
+    var residentPose = {};
+    for (var i = 0; i < platformPeople; i += 1) {
+      platformResidentPose(i, time, geometry, residentPose);
+      drawResidentFlashlight(residentPose, palette, geometry, time);
       drawPerson(
-        baseX + roam,
-        deckChoice,
-        time * 1.25 + i,
+        residentPose.x,
+        residentPose.deck,
+        residentPose.phase,
         i % 3 === 0 ? palette.kelp : palette.foam,
-        i % 2 ? 1 : -1
+        residentPose.direction,
+        residentPose.role,
+        residentPose.action
       );
     }
     if (structure.integrity < 0.985) {
-      drawPerson(left + span * 0.58, deck - 2, time * 2.1, palette.lamp, -1);
       ctx.fillStyle = palette.lamp;
       ctx.fillRect(Math.floor(left + span * 0.58 + 4), deck - 1, 2, 1);
     }
+    drawPlatformMotion(time, palette, geometry, left, span, deck, towerX);
     ctx.restore();
   }
 
   function updateRaft(dt, time, line) {
     if (!raft.y) raft.y = surfaceY(raft.x + 14, time, line, raft.x) - 4;
     var localFlow = sampleFluid(raft.x + 14, line + 7);
-    var targetVelocity = 1.15 + localFlow.x * 0.85;
-    raft.vx += (targetVelocity - raft.vx) * dt * 0.55;
+    var currentInfluence = clamp(localFlow.x - 0.25, -1.2, 1.2) * 0.08;
+    var targetVelocity = clamp(0.8 + currentInfluence + environment.wind * 0.018, 0.68, 0.94);
+    raft.vx += (targetVelocity - raft.vx) * dt * 0.32;
     raft.x += raft.vx * dt;
 
     var targetY = surfaceY(raft.x + 14, time, line, raft.x) - 4;
@@ -1462,52 +4309,140 @@
     disturbSurface(raft.x + 27, -raft.vx * dt * 0.38 - raft.vy * dt * 0.22, 8);
     disturbSurface(raft.x + 1, raft.vx * dt * 0.24, 7);
 
-    if (screenToWorldX(raft.x) > WORLD_WRAP_RIGHT + 62) {
-      raft.x = worldToScreenX(WORLD_WRAP_LEFT - 58);
+    if (screenToWorldX(raft.x) > activeWorldRight() + 62) {
+      raft.x = worldToScreenX(activeWorldLeft() - 58);
       raft.y = surfaceY(raft.x + 14, time, line, raft.x) - 4;
       raft.vy = 0;
       raft.angle = 0;
     }
   }
 
-  function drawRaft(time, palette) {
+  function raftPose() {
     var centerX = Math.round(raft.x + 14);
     var centerY = Math.round(raft.y + 2);
     var steppedAngle = Math.round(clamp(raft.angle, -0.16, 0.16) * 12) / 12;
     var leftY = centerY - Math.round(steppedAngle * 14);
     var rightY = centerY + Math.round(steppedAngle * 15);
-    pixelLine(centerX - 14, leftY, centerX + 15, rightY, palette.timberLight, 3);
-    pixelLine(centerX - 11, leftY + 3, centerX + 12, rightY + 3, palette.timber, 2);
-    var mastY = Math.round(lerp(leftY, rightY, 18 / 29));
-    pixelLine(centerX + 4, mastY, centerX + 4, mastY - 11, palette.timber, 1);
-    moduleSpan(centerX + 5, mastY - 11, 7, 5, palette.foam, palette.star, palette.steel, 401, 7);
+    return { centerX: centerX, centerY: centerY, leftY: leftY, rightY: rightY };
+  }
+
+  function raftYAt(pose, offset) {
+    return Math.round(lerp(pose.leftY, pose.rightY, (offset + 14) / 29));
+  }
+
+  function drawRaftUnder(palette) {
+    var pose = raftPose();
+    for (var offset = -15; offset <= 15; offset += 1) {
+      var edge = Math.abs(offset);
+      var hullDepth = edge > 13 ? 2 : edge > 10 ? 3 : 4;
+      var hullY = raftYAt(pose, offset);
+      var hullColor = offset % 5 === 0 ? palette.timberLight : palette.timber;
+      pixelRect(pose.centerX + offset, hullY, 1, hullDepth, hullColor);
+      if (hullDepth > 2 && (offset + 15) % 6 === 0) {
+        pixelRect(pose.centerX + offset, hullY + hullDepth - 1, 1, 1, palette.steelDark);
+      }
+    }
+    pixelLine(pose.centerX - 11, raftYAt(pose, -11) + 3, pose.centerX + 11, raftYAt(pose, 11) + 3, palette.steelDark, 1);
+  }
+
+  function drawRaftWake(time, palette, line) {
+    var pose = raftPose();
+    var sternX = pose.centerX - 16;
+    var sternSurfaceY = surfaceY(sternX, time, line, raft.x);
+    ctx.globalAlpha = 0.58;
+    pixelRect(sternX - 1, sternSurfaceY - 1, 1, 1, palette.foam);
+    pixelRect(sternX - 2, sternSurfaceY, 1, 1, palette.bubble);
+    pixelRect(sternX - 4, surfaceY(sternX - 4, time, line, raft.x), 1, 1, palette.foam);
+
+    for (var bubble = 0; bubble < 4; bubble += 1) {
+      var age = (time * (0.12 + bubble * 0.008) + bubble * 0.237) % 1;
+      var bubbleX = sternX - 2 - age * (7 + bubble * 2);
+      var wakeSurfaceY = surfaceY(bubbleX, time, line, raft.x);
+      var bubbleY = wakeSurfaceY + 2 + age * (2 + bubble * 0.55) +
+        Math.sin(time * 0.32 + bubble * 1.9) * 0.45;
+      ctx.globalAlpha = (1 - age) * 0.34;
+      pixelRect(bubbleX, bubbleY, 1, 1, palette.bubble);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawRaftAbove(time, palette) {
+    var pose = raftPose();
+    for (var deckOffset = -15; deckOffset <= 15; deckOffset += 1) {
+      var deckY = raftYAt(pose, deckOffset);
+      pixelRect(
+        pose.centerX + deckOffset,
+        deckY - 1,
+        1,
+        2,
+        deckOffset % 5 === 0 ? palette.timber : palette.timberLight
+      );
+    }
+    drawPixelMask(
+      pose.centerX - 16,
+      raftYAt(pose, -15) - 1,
+      [" 11", "111"],
+      { "1": palette.timberLight },
+      false
+    );
+    drawPixelMask(
+      pose.centerX + 14,
+      raftYAt(pose, 15) - 1,
+      ["11 ", "111"],
+      { "1": palette.timberLight },
+      false
+    );
+    var tieOffsets = [-11, -4, 3, 10, 14];
+    for (var tie = 0; tie < tieOffsets.length; tie += 1) {
+      var tieOffset = tieOffsets[tie];
+      pixelRect(pose.centerX + tieOffset, raftYAt(pose, tieOffset) - 1, 1, 2, palette.foam);
+    }
+    var mastY = raftYAt(pose, 4);
+    pixelLine(pose.centerX + 4, mastY, pose.centerX + 4, mastY - 11, palette.timber, 1);
+    drawPixelMask(
+      pose.centerX + 5,
+      mastY - 11,
+      ["1      ", "111    ", "11111  ", "1111111", "  2  2 "],
+      { "1": palette.foam, "2": palette.steel },
+      false
+    );
     var people = [
-      { offset: -6, phase: time * 1.1, color: palette.foam, facing: 1 },
-      { offset: 2, phase: time * 0.9 + 2, color: palette.kelp, facing: -1 },
-      { offset: 10, phase: time * 1.05 + 4, color: palette.foam, facing: -1 }
+      { offset: -5, phase: time * 0.82, color: palette.foam, facing: 1, role: "guest" },
+      { offset: 7, phase: time * 0.72 + 2, color: palette.android, facing: -1, role: "worker" }
     ];
     for (var i = 0; i < people.length; i += 1) {
       var person = people[i];
-      var amount = (person.offset + 14) / 29;
       drawPerson(
-        centerX + person.offset,
-        Math.round(lerp(leftY, rightY, amount)) - 1,
+        pose.centerX + person.offset,
+        raftYAt(pose, person.offset) - 1,
         person.phase,
         person.color,
-        person.facing
+        person.facing,
+        person.role
       );
     }
   }
 
   function updateCarpet(dt, time, line) {
     var targetY = line - 52 + Math.sin(time * 0.45) * 5 + environment.wind * 0.7;
-    carpet.vx += (-3.2 - environment.wind * 0.34 - carpet.vx) * dt * 0.8;
+    if (time < carpet.waitingUntil) {
+      carpet.x = worldToScreenX(activeWorldRight() + 120);
+      carpet.y = targetY;
+      carpet.vx = 0;
+      carpet.vy = 0;
+      return;
+    }
+    var targetSpeed = -3.2 * tuning.carpetSpeed - environment.wind * 0.34;
+    carpet.vx += (targetSpeed - carpet.vx) * dt * 1.4;
     carpet.vy += (targetY - carpet.y) * dt * 1.8 - carpet.vy * dt * 1.5;
     carpet.x += carpet.vx * dt;
     carpet.y += carpet.vy * dt;
-    if (screenToWorldX(carpet.x) < WORLD_WRAP_LEFT - 65) {
-      carpet.x = worldToScreenX(WORLD_WRAP_RIGHT + 65);
+    if (screenToWorldX(carpet.x) < activeWorldLeft() - 65) {
+      carpet.passIndex += 1;
+      carpet.waitingUntil = time + 18 + hash(carpet.passIndex * 17.3 + 4.8) * 25;
+      carpet.x = worldToScreenX(activeWorldRight() + 120);
       carpet.y = targetY;
+      carpet.vx = 0;
       carpet.vy = 0;
     }
   }
@@ -1515,43 +4450,97 @@
   function drawCarpet(time, palette, line) {
     var x = carpet.x;
     var y = carpet.y;
-    ctx.fillStyle = palette.planetLight;
-    ctx.fillRect(Math.floor(x), Math.floor(y), 20, 2);
-    ctx.fillStyle = palette.kelp;
-    ctx.fillRect(Math.floor(x + 2), Math.floor(y + 1), 16, 1);
-    drawPerson(x + 9, y, time * 1.2, palette.foam, -1);
+    drawPixelMask(
+      x,
+      y,
+      [
+        "  111111111111111111111  ",
+        "112222322223222232222211",
+        "  111111111111111111111  ",
+        " 4 4 4 4 4 4 4 4 4 4 4 "
+      ],
+      { "1": palette.planetLight, "2": palette.kelp, "3": palette.lamp, "4": palette.plankton },
+      false
+    );
+
+    var raulX = x + 9;
+    var raulStep = Math.sin(time * 1.2) > 0 ? 1 : -1;
+    pixelRect(raulX, y - 6, 2, 2, palette.foam);
+    pixelRect(raulX, y - 4, 2, 3, palette.foam);
+    pixelRect(raulX - raulStep, y - 1, 1, 3, palette.foam);
+    pixelRect(raulX + 1 + raulStep, y - 1, 1, 3, palette.foam);
+    pixelRect(raulX, y - 5, 1, 1, palette.abyss);
+
     ctx.globalAlpha = 0.55;
-    for (var i = 0; i < 7; i += 1) {
-      ctx.fillStyle = palette.plankton;
-      ctx.fillRect(Math.floor(x + 21 + i * 2), Math.floor(y + 1 + Math.sin(i + time * 0.6) * 2), 1, 1);
+    for (var i = 0; i < 8; i += 1) {
+      pixelRect(x + 25 + i * 2, y + 1 + Math.sin(i + time * 1.2) * 2, 1, 1, palette.plankton);
     }
     ctx.globalAlpha = 1;
   }
 
   function drawPortal(time, palette, line) {
-    var x = Math.floor(worldToScreenX(51));
-    pixelArc(x, line + 3, 18, Math.PI, Math.PI * 2, palette.steel, 3);
-    ctx.globalAlpha = 0.3 + Math.sin(time * 0.3) * 0.08;
-    pixelArc(x, line + 3, 14, Math.PI, Math.PI * 2, palette.bubble, 1);
+    var x = Math.floor(worldToScreenX(48));
+    var gateY = line + 5;
+    ctx.globalAlpha = 0.52;
+    pixelArc(x, gateY, 58, Math.PI, Math.PI * 2, palette.steelDark, 5);
+    ctx.globalAlpha = 0.64;
+    pixelArc(x, gateY, 55, Math.PI, Math.PI * 2, palette.steel, 2);
+    ctx.globalAlpha = 0.36 + Math.sin(time * 0.3) * 0.08;
+    pixelArc(x, gateY, 47, Math.PI, Math.PI * 2, palette.bubble, 1);
+    for (var marker = 0; marker < 13; marker += 1) {
+      var angle = Math.PI + (marker / 12) * Math.PI;
+      var pulse = (Math.sin(time * 0.82 + marker * 0.91) + 1) * 0.5;
+      ctx.globalAlpha = 0.16 + pulse * 0.46;
+      pixelRect(x + Math.cos(angle) * 52, gateY + Math.sin(angle) * 52, 1, 1, palette.foam);
+    }
     ctx.globalAlpha = 1;
   }
 
   function drawWorld(time, dt) {
     var palette = PALETTES[mode];
     var geometry = platformGeometry();
+    if (ecology) ecologyEvent = ecologyPreviewEvent || ecology.updateEvents(time);
     updateEnvironment(dt, time);
     updateSurface(dt, time);
+    updateRain(dt, time, geometry);
     updateRaft(dt, time, geometry.line);
-    updateLeviathan(dt, time, geometry);
+    updateLeviathans(dt, time, geometry);
+    updateColossalTendrils(dt, time, geometry.line);
     updateCarpet(dt, time, geometry.line);
     var actors = {
       raftX: raft.x,
       raftY: raft.y,
       raftVX: raft.vx,
       raftVY: raft.vy,
-      leviathanX: leviathan.x,
-      leviathanY: leviathan.y
+      leviathans: leviathans,
+      swimmers: swimmers
     };
+
+    updateDeepBodyDescriptors(time, geometry);
+    if (platformLife && AmbientLife) {
+      var raftProximity = clamp(1 - Math.abs((raft.x + 14) - geometry.left) / 190, 0, 1);
+      var raulProximity = clamp(1 - Math.abs((carpet.x + 12) - geometry.left) / 180, 0, 1);
+      var creatureProximity = 0;
+      for (var platformCreature = 0; platformCreature < leviathans.length; platformCreature += 1) {
+        creatureProximity = Math.max(
+          creatureProximity,
+          clamp(1 - Math.abs(leviathans[platformCreature].x - geometry.left) / 220, 0, 1) *
+            clamp(1 - Math.abs(leviathans[platformCreature].y - geometry.line) / 170, 0, 1)
+        );
+      }
+      if (ecologyEvent && ecologyEvent.active && ecologyEvent.type === "shadowPassage") {
+        creatureProximity = Math.max(creatureProximity, ecologyEvent.intensity * 0.9);
+      }
+      AmbientLife.updatePlatformState(platformLife, time, {
+        activity: tuning.platformActivity,
+        storm: environment.storm,
+        night: 0.82,
+        raftProximity: raftProximity,
+        raulProximity: raulProximity,
+        creatureProximity: creatureProximity,
+        structureStress: structure.stress
+      });
+    }
 
     updateFluid(dt, time, geometry, actors);
     updateStructure(dt, geometry);
@@ -1561,24 +4550,34 @@
     updateParticles(dt, time, geometry, actors);
     drawSky(time, palette, geometry.line);
     drawWeather(time, palette, geometry.line);
-    drawWater(time, palette, geometry.line, raft.x);
+    drawRainDrops(palette);
     drawPortal(time, palette, geometry.line);
+    drawWater(time, palette, geometry.line, raft.x);
+    drawCaustics(time, palette, geometry);
+    drawBackgroundTitans(time, palette, geometry.line);
+    drawRareEcology(time, palette, geometry);
+    drawColossalEncounters(time, palette, geometry.line);
     drawSubstructure(time, palette, geometry);
-    drawLeviathan(time, palette, actors);
-    drawFloatingKelp(time, palette, geometry.line);
+    drawLeviathans(time, palette);
     drawFluidMaterial(palette);
-    drawSwimmers(palette);
+    drawSwimmers(time, palette);
     drawParticles(palette);
+    drawMooringUnder(palette);
+    drawRaftUnder(palette);
     drawSurface(time, palette, geometry.line, raft.x);
-    drawMooring(palette);
+    drawRainSplashes(time, palette, geometry);
+    drawRaftWake(time, palette, geometry.line);
+    drawMooringAbove(palette);
     drawPlatform(time, palette, geometry);
-    drawRaft(time, palette);
+    drawRaftAbove(time, palette);
     drawCarpet(time, palette, geometry.line);
-    drawFluidDebug(palette);
+    drawFluidDebug(time, palette);
   }
 
   function resize() {
     var oldCameraX = cameraX;
+    var oldWidth = width;
+    var oldHeight = height;
     var oldLine = fluid ? fluid.line : waterlineY();
     var oldFluid = fluid;
     var oldSurface = surface;
@@ -1595,9 +4594,12 @@
     var yShift = newLine - oldLine;
     canvas.width = width;
     canvas.height = height;
+    inspectMaskCanvas.width = width;
+    inspectMaskCanvas.height = height;
     canvas.style.width = width * ART_PIXEL + "px";
     canvas.style.height = height * ART_PIXEL + "px";
     ctx.imageSmoothingEnabled = false;
+    buildWaterTexture(PALETTES[mode], newLine);
     createSurface();
     if (oldSurface) {
       for (var surfaceCol = 0; surfaceCol < surface.cols; surfaceCol += 1) {
@@ -1654,12 +4656,62 @@
         particles[particle].y += yShift;
       }
     }
+    if (hadWorld && (width > oldWidth || height > oldHeight)) {
+      var particleBandWidth = Math.max(0, (width - oldWidth) * 0.5);
+      var particleBandTop = oldLine + oldHeight - oldLine + yShift;
+      for (var newParticle = oldParticles.length; newParticle < particles.length; newParticle += 1) {
+        if (particleBandWidth > 0 && (height <= oldHeight || newParticle % 3 !== 0)) {
+          var particleOnLeft = newParticle % 2 === 0;
+          particles[newParticle].x = particleOnLeft
+            ? hash(newParticle * 7.7) * particleBandWidth
+            : width - particleBandWidth + hash(newParticle * 11.3) * particleBandWidth;
+        } else if (height > oldHeight) {
+          particles[newParticle].x = hash(newParticle * 7.7) * width;
+          particles[newParticle].y = clamp(
+            particleBandTop + hash(newParticle * 13.9) * (height - particleBandTop),
+            newLine + 6,
+            height - 5
+          );
+        }
+      }
+    }
     createSwimmers();
     if (oldSwimmers && oldSwimmers.length) {
       for (var swimmer = 0; swimmer < Math.min(swimmers.length, oldSwimmers.length); swimmer += 1) {
         swimmers[swimmer] = oldSwimmers[swimmer];
         swimmers[swimmer].x += xShift;
         swimmers[swimmer].y += yShift;
+        if (swimmers[swimmer].tentacles) {
+          swimmers[swimmer].tentacles.forEach(function (chain) {
+            chain.points.forEach(function (point) {
+              point.x += xShift;
+              point.y += yShift;
+            });
+            chain.previous.forEach(function (point) {
+              point.x += xShift;
+              point.y += yShift;
+            });
+          });
+        }
+      }
+    }
+    if (hadWorld && (width > oldWidth || height > oldHeight)) {
+      var swimmerBandWidth = Math.max(0, (width - oldWidth) * 0.5);
+      var swimmerBandTop = oldHeight + yShift;
+      for (var newSwimmer = oldSwimmers.length; newSwimmer < swimmers.length; newSwimmer += 1) {
+        if (swimmerBandWidth > 0 && (height <= oldHeight || newSwimmer % 3 !== 0)) {
+          var swimmerOnLeft = newSwimmer % 2 === 0;
+          swimmers[newSwimmer].x = swimmerOnLeft
+            ? hash(newSwimmer * 5.9) * swimmerBandWidth
+            : width - swimmerBandWidth + hash(newSwimmer * 9.7) * swimmerBandWidth;
+        } else if (height > oldHeight) {
+          swimmers[newSwimmer].x = hash(newSwimmer * 5.9) * width;
+          swimmers[newSwimmer].y = clamp(
+            swimmerBandTop + hash(newSwimmer * 12.1) * (height - swimmerBandTop),
+            newLine + 12,
+            height - 6
+          );
+        }
       }
     }
     createDeposits();
@@ -1681,8 +4733,10 @@
     if (hadWorld) {
       raft.x += xShift;
       raft.y += yShift;
-      leviathan.x += xShift;
-      leviathan.y += yShift;
+      for (var leviathanIndex = 0; leviathanIndex < leviathans.length; leviathanIndex += 1) {
+        leviathans[leviathanIndex].x += xShift;
+        leviathans[leviathanIndex].y += yShift;
+      }
       carpet.x += xShift;
       carpet.y += yShift;
       mooring.buoyX += xShift;
@@ -1695,7 +4749,12 @@
       }
     } else {
       mooring.initialized = false;
-      leviathan.y = newLine + (height - newLine) * 0.69;
+      raft.x = worldToScreenX(-42);
+      carpet.x = worldToScreenX(470);
+      for (var initialLeviathan = 0; initialLeviathan < leviathans.length; initialLeviathan += 1) {
+        leviathans[initialLeviathan].x = worldToScreenX(leviathans[initialLeviathan].worldStart);
+        leviathans[initialLeviathan].y = newLine + (height - newLine) * leviathans[initialLeviathan].depth;
+      }
       raft.y = surfaceY(raft.x + 14, 0, newLine, raft.x) - 4;
       carpet.y = newLine - 52;
     }
@@ -1707,18 +4766,55 @@
   function setMode(nextMode) {
     if (!PALETTES[nextMode]) return;
     mode = nextMode;
+    buildWaterTexture(PALETTES[mode], waterlineY());
     shell.classList.remove("mode-a", "mode-b", "mode-c");
     shell.classList.add("mode-" + nextMode.toLowerCase());
     document.querySelectorAll("[data-mode]").forEach(function (button) {
       button.classList.toggle("active", button.dataset.mode === nextMode);
     });
+    setTuning("density", DENSITY_PROFILES[nextMode]);
+  }
+
+  function rebalanceSeaLife() {
+    var previousParticles = particles;
+    var previousSwimmers = swimmers;
+    createParticles();
+    for (var particle = 0; particle < Math.min(particles.length, previousParticles.length); particle += 1) {
+      particles[particle] = previousParticles[particle];
+    }
+    createSwimmers();
+    for (var swimmer = 0; swimmer < Math.min(swimmers.length, previousSwimmers.length); swimmer += 1) {
+      swimmers[swimmer] = previousSwimmers[swimmer];
+    }
+  }
+
+  function setTuning(name, value) {
+    if (!Object.prototype.hasOwnProperty.call(tuning, name)) return;
+    var nextValue = Number(value);
+    if (!Number.isFinite(nextValue)) return;
+    var previousValue = tuning[name];
+    tuning[name] = nextValue;
+    if (name === "seaLife" || name === "density") rebalanceSeaLife();
+    if (name === "waveEnergy" && surface && previousValue > 0) {
+      var scale = nextValue / previousValue;
+      for (var i = 0; i < surface.height.length; i += 1) {
+        surface.height[i] = clamp(surface.height[i] * scale, -8.5, 8.5);
+        surface.velocity[i] *= clamp(scale, 0.6, 1.7);
+      }
+    }
+    var output = document.querySelector('[data-tuning-output="' + name + '"]');
+    if (output) {
+      output.textContent = (name === "density" ? nextValue.toFixed(2).replace(/0$/, "") : nextValue.toFixed(1)) + "×";
+    }
+    var input = document.querySelector('[data-tuning="' + name + '"]');
+    if (input && Number(input.value) !== nextValue) input.value = String(nextValue);
   }
 
   function showInterface() {
     shell.classList.remove("ui-hidden");
     window.clearTimeout(uiTimer);
     uiTimer = window.setTimeout(function () {
-      shell.classList.add("ui-hidden");
+      if (!glossaryOpen && !inspectHeld) shell.classList.add("ui-hidden");
     }, 5500);
   }
 
@@ -1730,8 +4826,20 @@
     };
   }
 
+  function trackPointer(event, position) {
+    var nextPosition = position || pointerPosition(event);
+    pointer.x = nextPosition.x;
+    pointer.y = nextPosition.y;
+    pointer.clientX = event.clientX;
+    pointer.clientY = event.clientY;
+    pointer.inside = true;
+  }
+
   function stirWater(event, firstContact) {
     var position = pointerPosition(event);
+    pointer.clientX = event.clientX;
+    pointer.clientY = event.clientY;
+    pointer.inside = true;
     var line = waterlineY();
     if (position.y < line - 5) {
       pointer.x = position.x;
@@ -1761,8 +4869,40 @@
   function render(now) {
     var dt = Math.min(0.05, Math.max(0.001, (now - lastFrame) / 1000));
     lastFrame = now;
-    drawWorld((now - started) / 1000, dt);
+    var time = (now - started) / 1000;
+    drawWorld(time, dt);
+    drawInspectionOutline(time);
+    updateInspector(time);
     requestAnimationFrame(render);
+  }
+
+  if (glossaryToggle) {
+    glossaryToggle.addEventListener("click", function () {
+      setGlossaryOpen(!glossaryOpen);
+    });
+  }
+  if (welcomeOpen) {
+    welcomeOpen.addEventListener("click", function () {
+      setWelcomeOpen(true, false);
+    });
+  }
+  if (welcomeEnter) {
+    welcomeEnter.addEventListener("click", function () {
+      setWelcomeOpen(false, true);
+    });
+  }
+  if (glossaryPin) {
+    glossaryPin.addEventListener("click", function () {
+      setGlossaryPinned(!glossaryPinned);
+      showInterface();
+    });
+  }
+  var glossaryClose = document.querySelector("[data-glossary-close]");
+  if (glossaryClose) {
+    glossaryClose.addEventListener("click", function () {
+      setGlossaryOpen(false);
+      if (glossaryToggle) glossaryToggle.focus({ preventScroll: true });
+    });
   }
 
   document.querySelectorAll("[data-mode]").forEach(function (button) {
@@ -1772,13 +4912,50 @@
     });
   });
 
+  document.querySelectorAll("[data-tuning]").forEach(function (input) {
+    input.addEventListener("input", function () {
+      setTuning(input.dataset.tuning, input.value);
+      showInterface();
+    });
+  });
+
   window.addEventListener("keydown", function (event) {
     var key = event.key.toUpperCase();
+    var editable = event.target && event.target.matches && event.target.matches("input, textarea, select");
+    if (event.key === "Control" && !editable) {
+      inspectHeld = true;
+      shell.classList.add("is-inspecting");
+      showInterface();
+    }
+    if (key === "G" && !editable && !event.repeat) {
+      setGlossaryOpen(!glossaryOpen);
+      event.preventDefault();
+    }
+    if (key === "ESCAPE" && welcome && !welcome.hidden) {
+      setWelcomeOpen(false, true);
+      event.preventDefault();
+    } else if (key === "ESCAPE" && glossaryOpen) {
+      setGlossaryOpen(false);
+      if (glossaryToggle) glossaryToggle.focus({ preventScroll: true });
+    }
     if (key === "A" || key === "B" || key === "C") setMode(key);
     if (key === "F") document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (key === "H") shell.classList.toggle("ui-hidden");
     if (key === "D") debugFlow = !debugFlow;
     if (key === "S") environment.forcedStorm = 12;
+  });
+  window.addEventListener("keyup", function (event) {
+    if (event.key !== "Control") return;
+    inspectHeld = false;
+    shell.classList.remove("is-inspecting");
+    hideInspector();
+    showInterface();
+  });
+  window.addEventListener("blur", function () {
+    inspectHeld = false;
+    pointer.down = false;
+    shell.classList.remove("is-inspecting");
+    hideInspector();
   });
   canvas.addEventListener("pointerdown", function (event) {
     pointer.down = true;
@@ -1786,7 +4963,20 @@
     stirWater(event, true);
   });
   canvas.addEventListener("pointermove", function (event) {
+    if (event.ctrlKey && !inspectHeld) {
+      inspectHeld = true;
+      shell.classList.add("is-inspecting");
+    }
     if (pointer.down) stirWater(event, false);
+    else trackPointer(event);
+  });
+  canvas.addEventListener("pointerenter", function (event) {
+    trackPointer(event);
+  });
+  canvas.addEventListener("pointerleave", function () {
+    if (pointer.down) return;
+    pointer.inside = false;
+    hideInspector();
   });
   canvas.addEventListener("pointerup", function () {
     pointer.down = false;
@@ -1798,6 +4988,40 @@
   window.addEventListener("pointermove", showInterface, { passive: true });
 
   window.__mareDebug = {
+    identifyAt: function (x, y) {
+      var id = inspectionTargetAt(Number(x), Number(y), (performance.now() - started) / 1000);
+      return id ? Object.assign({}, BESTIARY_BY_ID[id]) : null;
+    },
+    glossaryCount: BESTIARY.length,
+    previewRareEvent: function (type, intensity) {
+      var allowed = ["jellyBloom", "migration", "feedingFrenzy", "deepQuiet", "distantBreach", "shadowPassage"];
+      if (allowed.indexOf(type) < 0) return false;
+      ecologyPreviewEvent = {
+        active: true,
+        type: type,
+        name: type,
+        intensity: clamp(Number(intensity) || 1, 0, 1),
+        phase: 0.5,
+        direction: 1,
+        x: 0.42,
+        depth: type === "shadowPassage" ? 0.72 : 0.42,
+        seed: 0.326,
+        startedAt: 0,
+        endsAt: Infinity
+      };
+      return true;
+    },
+    clearRareEventPreview: function () {
+      ecologyPreviewEvent = null;
+    },
+    previewBackgroundTitan: function (type) {
+      if (["mountainback", "veilback"].indexOf(type) < 0) return false;
+      backgroundTitanPreview = type;
+      return true;
+    },
+    clearBackgroundTitanPreview: function () {
+      backgroundTitanPreview = "";
+    },
     snapshot: function () {
       var geometry = platformGeometry();
       var dyeMass = 0;
@@ -1815,7 +5039,61 @@
         platformWorldLeft: screenToWorldX(geometry.left),
         platformWidth: geometry.right - geometry.left,
         raftWorldX: screenToWorldX(raft.x),
-        leviathanWorldX: screenToWorldX(leviathan.x),
+        raul: {
+          worldX: screenToWorldX(carpet.x),
+          waiting: (performance.now() - started) / 1000 < carpet.waitingUntil,
+          nextPassIn: Math.max(0, carpet.waitingUntil - (performance.now() - started) / 1000)
+        },
+        leviathanWorldX: screenToWorldX(leviathans[0].x),
+        leviathanWorldXs: leviathans.map(function (leviathan) {
+          return screenToWorldX(leviathan.x);
+        }),
+        density: visualDensity(),
+        platformResidents: Array.from({ length: platformResidentCount() }, function (_, residentIndex) {
+          return Object.assign({}, platformResidentPose(residentIndex, (performance.now() - started) / 1000, geometry, {}));
+        }),
+        swimmerCount: swimmers.length,
+        swimmerSamples: swimmers.slice(0, 24).map(function (swimmer) {
+          return {
+            kind: swimmer.kind,
+            x: swimmer.x,
+            y: swimmer.y,
+            direction: swimmer.direction,
+            behavior: swimmer.behaviorName || "uninitialized"
+          };
+        }),
+        swimmersIntersectingStructure: swimmers.reduce(function (count, swimmer) {
+          return count + (swimmerCollidesAt(swimmer, swimmer.x, swimmer.y, geometry) ? 1 : 0);
+        }, 0),
+        intersectingSwimmers: swimmers.filter(function (swimmer) {
+          return swimmerCollidesAt(swimmer, swimmer.x, swimmer.y, geometry);
+        }).slice(0, 8).map(function (swimmer) {
+          var extents = swimmerCollisionExtents(swimmer, {});
+          return { kind: swimmer.kind, x: swimmer.x, y: swimmer.y, radiusX: extents.x, radiusY: extents.y, vx: swimmer.vx, vy: swimmer.vy };
+        }),
+        behaviorCounts: swimmers.reduce(function (counts, swimmer) {
+          var state = swimmer.behaviorName || "uninitialized";
+          counts[state] = (counts[state] || 0) + 1;
+          return counts;
+        }, {}),
+        rareEvent: ecologyEvent ? {
+          active: ecologyEvent.active,
+          type: ecologyEvent.type,
+          intensity: ecologyEvent.intensity
+        } : null,
+        backgroundTitan: (function () {
+          var active = activeBackgroundTitan((performance.now() - started) / 1000, geometry.line);
+          return active ? {
+            type: active.encounter.type,
+            x: active.state.x,
+            y: active.state.y,
+            radiusX: active.state.radiusX,
+            radiusY: active.state.radiusY
+          } : null;
+        }()),
+        rain: { drops: rainDrops.length, splashes: rainSplashes.length },
+        observations: Object.assign({}, observationCounts),
+        particleCount: particles.length,
         particleWorldX: particles.slice(0, 6).map(function (particle) {
           return screenToWorldX(particle.x);
         }),
@@ -1825,7 +5103,18 @@
     }
   };
 
+  renderGlossary();
+  try {
+    if (window.localStorage.getItem("mare-glossary-pinned") === "1") setGlossaryPinned(true);
+  } catch (error) {
+    // The glossary still works without persistent storage.
+  }
   resize();
   showInterface();
+  try {
+    if (window.localStorage.getItem("mare-welcome-seen-v1") !== "1") setWelcomeOpen(true, false);
+  } catch (error) {
+    setWelcomeOpen(true, false);
+  }
   requestAnimationFrame(render);
 }());

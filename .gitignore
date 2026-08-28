@@ -13,4 +13,6 @@ yarn-error.log*
 .pnpm-debug.log*
 .env*
 /outputs
+/output
+/.playwright-cli
 /work
