@@ -17,6 +17,11 @@ required_assets=(
   "systems/creature-variation.js"
   "systems/ecology.js"
   "systems/ambient-life.js"
+  "systems/light-field.js"
+  "systems/motion-engine.js"
+  "systems/world-physics.js"
+  "systems/scene-engine.js"
+  "systems/event-director.js"
 )
 
 for asset in "${required_assets[@]}"; do

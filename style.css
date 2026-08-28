@@ -55,56 +55,79 @@ input { font: inherit; }
 }
 
 .ui-chrome {
-  transition: opacity 500ms ease, transform 500ms ease;
+  transition: opacity 140ms cubic-bezier(.23, 1, .32, 1);
 }
+
+.ui-instant .ui-chrome { transition: none; }
 
 .ui-hidden .ui-chrome {
   opacity: 0;
   pointer-events: none;
 }
 
-.lab-header {
-  position: absolute;
-  top: 20px;
-  left: 22px;
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  pointer-events: none;
-  text-shadow: 0 2px 8px rgb(0 0 0 / 65%);
-}
-
-.lab-header p,
-.style-switcher p {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .15em;
-}
-
-.lab-header span {
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: .08em;
-}
-
-.style-switcher {
+.ui-dock {
   position: absolute;
   right: 18px;
   bottom: 18px;
+  z-index: 10;
+  display: grid;
+  width: min-content;
+  min-width: 252px;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid rgb(232 221 255 / 10%);
+  background: rgb(7 7 18 / 52%);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 18%);
+  opacity: .68;
+  backdrop-filter: blur(8px);
+}
+
+.mare-shell:not(.ui-hidden) .ui-dock:focus-within { opacity: 1; }
+
+.ui-dock-meta {
+  padding: 0 2px;
+  color: rgb(242 236 255 / 46%);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .13em;
+}
+
+.settings-panel {
+  position: absolute;
+  right: 18px;
+  bottom: 102px;
+  z-index: 11;
   width: min(320px, calc(100vw - 36px));
   padding: 14px;
   border: 1px solid var(--line);
-  background: var(--glass);
+  background: rgb(7 7 18 / 90%);
   box-shadow: 0 10px 40px rgb(0 0 0 / 25%);
   backdrop-filter: blur(10px);
 }
 
-.style-options {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 5px;
-  margin: 9px 0 8px;
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-section-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.settings-header h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: -.02em;
 }
 
 .density-control {
@@ -174,106 +197,63 @@ input { font: inherit; }
   cursor: pointer;
 }
 
-.style-switcher button {
+.ui-dock button,
+.settings-panel button {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-  align-items: flex-start;
-  padding: 8px;
-  border: 1px solid transparent;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
   background: rgb(255 255 255 / 5%);
   color: var(--muted);
   cursor: pointer;
-  font-size: 10px;
-  letter-spacing: .04em;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  font-size: 9px;
+  letter-spacing: .06em;
+  white-space: nowrap;
+  transition: transform 120ms cubic-bezier(.23, 1, .32, 1), background-color 120ms cubic-bezier(.23, 1, .32, 1), border-color 120ms cubic-bezier(.23, 1, .32, 1), color 120ms cubic-bezier(.23, 1, .32, 1);
 }
 
-.style-switcher button:hover { background: rgb(255 255 255 / 9%); }
-
-.style-switcher button.active {
-  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--ink);
-}
-
-.style-switcher button span {
+.ui-dock button span {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 20%);
   color: var(--accent);
-  font-size: 13px;
+  font-size: 9px;
   font-weight: 700;
 }
 
-.style-switcher small {
-  color: var(--muted);
-  font-size: 10px;
-  letter-spacing: .04em;
-}
-
-.control-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.control-footer small { line-height: 1.45; }
-
 .control-actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: stretch;
-  gap: 5px;
-}
-
-.style-switcher .about-trigger {
-  min-height: 24px;
-  flex-direction: row;
-  align-items: center;
-  padding: 5px 7px;
-  border-color: var(--line);
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.style-switcher .glossary-trigger {
-  flex: 0 0 auto;
-  min-height: 24px;
-  flex-direction: row;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 7px;
-  border-color: var(--line);
-  color: var(--ink);
-  white-space: nowrap;
-  transition: transform 140ms cubic-bezier(.23, 1, .32, 1), background 140ms ease, border-color 140ms ease;
-}
-
-.style-switcher .glossary-trigger span {
   display: grid;
-  width: 17px;
-  height: 17px;
-  place-items: center;
-  border: 1px solid rgb(255 255 255 / 24%);
-  color: var(--accent);
-  font-size: 10px;
+  grid-template-columns: auto auto auto;
+  gap: 4px;
 }
 
-.style-switcher .glossary-trigger:active,
+.ui-dock .glossary-trigger { color: var(--ink); }
+
+.ui-shortcuts {
+  color: rgb(242 236 255 / 38%);
+  font-size: 8px;
+  line-height: 1.45;
+  letter-spacing: .045em;
+}
+
+.ui-shortcuts { padding: 0 2px; }
+
+.ui-shortcuts kbd {
+  min-width: 15px;
+  min-height: 15px;
+  padding: 0 3px;
+}
+
+.ui-dock button:active,
+.settings-close:active,
 .glossary-close:active,
 .glossary-pin:active,
 .glossary-entry:active { transform: scale(.97); }
-
-.inspect-key-hint {
-  position: absolute;
-  left: 22px;
-  bottom: 20px;
-  color: rgb(242 236 255 / 54%);
-  font-size: 10px;
-  letter-spacing: .08em;
-  pointer-events: none;
-  text-shadow: 0 2px 8px rgb(0 0 0 / 70%);
-}
 
 .touch-help { display: none; }
 
@@ -683,29 +663,29 @@ input[type="range"]:focus-visible {
 .mode-c { --accent: #ffc35a; }
 
 @media (max-width: 560px) {
-  .lab-header { top: 14px; left: 14px; }
-  .lab-header span { display: none; }
-  .style-switcher { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
-  .inspect-key-hint { display: none; }
+  .ui-dock { right: 12px; bottom: 12px; width: max-content; min-width: 0; max-width: calc(100vw - 24px); }
+  .ui-dock-meta,
+  .ui-shortcuts { display: none; }
+  .settings-panel { right: 12px; bottom: 66px; width: calc(100vw - 24px); }
   .glossary-panel { inset: 8px 8px auto; width: auto; height: calc(100vh - 16px); }
   .welcome-dialog { padding: 24px 20px 22px; }
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .mare-shell:not(.ui-hidden) .ui-dock:hover { opacity: 1; }
+  .ui-dock button:hover,
+  .settings-panel button:hover { background: rgb(255 255 255 / 10%); }
+}
+
 @media (hover: none), (pointer: coarse) {
-  .inspect-key-hint {
-    display: block;
-    right: 14px;
-    bottom: 14px;
-    left: 14px;
-    text-align: left;
-  }
   .pointer-help { display: none; }
   .touch-help { display: inline; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ui-chrome,
-  .style-switcher button,
+  .ui-dock button,
+  .settings-panel button,
   .glossary-close,
   .glossary-pin,
   .glossary-entry { transition: none; }

@@ -32,12 +32,30 @@
   <body>
     <main class="mare-shell mode-b">
       <canvas class="mare-canvas" aria-label="A living pixel simulation of the ocean moon Mare Infinitus"></canvas>
-      <header class="lab-header ui-chrome">
-        <p>MARE INFINITUS</p>
-        <span>material study / live</span>
-      </header>
-      <section class="style-switcher ui-chrome" aria-label="Visual style">
-        <p>ECOSYSTEM DENSITY</p>
+      <section class="ui-dock ui-chrome" aria-label="Mare Infinitus controls">
+        <div class="ui-dock-meta" aria-hidden="true">
+          <span>MARE INFINITUS</span>
+        </div>
+        <div class="control-actions">
+          <button class="about-trigger" type="button" data-welcome-open><span>A</span> ABOUT</button>
+          <button class="settings-trigger" type="button" data-settings-toggle aria-expanded="false" aria-controls="mare-settings">
+            <span>T</span> SETTINGS
+          </button>
+          <button class="glossary-trigger" type="button" data-glossary-toggle aria-expanded="false" aria-controls="mare-glossary">
+            <span>G</span> GUIDE
+          </button>
+        </div>
+        <small class="ui-shortcuts">
+          <span class="pointer-help"><kbd>CTRL</kbd> IDENTIFY · <kbd>F</kbd> FULLSCREEN</span>
+          <span class="touch-help">PRESS + HOLD TO IDENTIFY</span>
+        </small>
+      </section>
+      <section class="settings-panel ui-chrome" id="mare-settings" role="dialog" aria-modal="false" aria-labelledby="settings-title" hidden>
+        <header class="settings-header">
+          <h1 id="settings-title">Settings</h1>
+          <button class="settings-close" type="button" data-settings-close aria-label="Close simulation settings">ESC</button>
+        </header>
+        <p class="settings-section-label">ECOSYSTEM DENSITY</p>
         <div class="density-control">
           <label>Population <output data-tuning-output="density">0.7×</output><input data-tuning="density" type="range" min="0.3" max="1.8" step="0.05" value="0.7"></label>
           <div class="density-scale" aria-hidden="true"><span>Sparse</span><span>Balanced</span><span>Teeming</span></div>
@@ -47,15 +65,6 @@
           <label>Sea life <output data-tuning-output="seaLife">1.7×</output><input data-tuning="seaLife" type="range" min="0.5" max="3" step="0.1" value="1.7"></label>
           <label>Platform <output data-tuning-output="platformActivity">1.6×</output><input data-tuning="platformActivity" type="range" min="0.5" max="3" step="0.1" value="1.6"></label>
           <label>Waves <output data-tuning-output="waveEnergy">1.2×</output><input data-tuning="waveEnergy" type="range" min="0.5" max="2.5" step="0.1" value="1.2"></label>
-        </div>
-        <div class="control-footer">
-          <small>drag water to stir · S storm · F fullscreen</small>
-          <div class="control-actions">
-            <button class="about-trigger" type="button" data-welcome-open>ABOUT</button>
-            <button class="glossary-trigger" type="button" data-glossary-toggle aria-expanded="false" aria-controls="mare-glossary">
-              <span>G</span> BESTIARY
-            </button>
-          </div>
         </div>
       </section>
       <aside class="glossary-panel ui-chrome" id="mare-glossary" role="dialog" aria-modal="false" aria-labelledby="glossary-title" hidden>
@@ -69,10 +78,10 @@
             <button class="glossary-close" type="button" data-glossary-close aria-label="Close bestiary">ESC</button>
           </div>
         </header>
-        <p class="glossary-intro"><strong>Step into this scene from <em>Endymion</em> in deeper detail.</strong> Hold <kbd>CTRL</kbd> and hover to identify anything. Hover an entry to highlight every example; click to copy its <strong>MI code</strong>. Contextual passages labeled <strong>BOOK TEXT</strong> come from the novel; <strong>SIM</strong> entries are extrapolations for the living material study.</p>
+        <p class="glossary-intro">Hold <kbd>CTRL</kbd> and hover to identify anything. Hover an entry to highlight every example; click to copy its <strong>MI code</strong>. <strong>BOOK TEXT</strong> passages come from the novel; <strong>SIM</strong> entries are extrapolated.</p>
         <div class="glossary-key" aria-label="Entry provenance">
           <span><i class="origin-dot book"></i> BOOK — named or described in <em>Endymion</em></span>
-          <span><i class="origin-dot sim"></i> SIM — material-study invention</span>
+          <span><i class="origin-dot sim"></i> SIM — extrapolated</span>
         </div>
         <div class="glossary-list" data-glossary-list></div>
         <p class="glossary-copy-status" data-glossary-copy-status aria-live="polite"></p>
@@ -82,10 +91,6 @@
         <strong data-inspection-name></strong>
         <small data-inspection-summary></small>
       </div>
-      <div class="inspect-key-hint ui-chrome" aria-hidden="true">
-        <span class="pointer-help"><kbd>CTRL</kbd> HOLD + HOVER TO IDENTIFY</span>
-        <span class="touch-help">PRESS + HOLD TO IDENTIFY · TAP AGAIN TO CLOSE</span>
-      </div>
       <div class="welcome-backdrop" data-welcome hidden>
         <section class="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-title" aria-describedby="welcome-description">
           <p class="welcome-kicker">RIVER TETHYS · WORLD 326</p>
@@ -93,7 +98,7 @@
           <p id="welcome-description">This is a slightly supplemented simulation of Mare Infinitus from Dan Simmons&rsquo;s <em>Hyperion Cantos</em>.</p>
           <p class="welcome-warning">Spoilers ahead.</p>
           <blockquote>
-            <p>&ldquo;We were not on a river&mdash;the ocean stretched to the night sky in each direction; we were no longer in daylight; we were not sinking.&rdquo;</p>
+            <p>&ldquo;The sea was a disturbing violet, serrated by wave-top crests of a blue so dark as to be almost black, and occasionally broken by yellowkelp beds or foam of an even darker violet.&rdquo;</p>
             <cite><em>Endymion</em>, chapter 31</cite>
           </blockquote>
           <p class="welcome-note">Hold <kbd>CTRL</kbd> and hover over the world to identify it. Open the bestiary for book text and field notes.</p>
@@ -104,6 +109,11 @@
     <script src="systems/creature-variation.js"></script>
     <script src="systems/ecology.js"></script>
     <script src="systems/ambient-life.js"></script>
+    <script src="systems/light-field.js"></script>
+    <script src="systems/motion-engine.js"></script>
+    <script src="systems/world-physics.js"></script>
+    <script src="systems/scene-engine.js"></script>
+    <script src="systems/event-director.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

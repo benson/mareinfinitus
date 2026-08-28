@@ -7,7 +7,8 @@
     "assets": "node scripts/generate-assets.mjs",
     "assets:check": "node scripts/generate-assets.mjs --check",
     "dev": "npx serve . -l 3000",
-    "test": "node scripts/validate-release.mjs",
+    "test": "node scripts/validate-release.mjs && node scripts/validate-simulation.mjs",
+    "test:simulation": "node scripts/validate-simulation.mjs",
     "validate": "node scripts/validate-release.mjs"
   }
 }

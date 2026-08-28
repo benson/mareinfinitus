@@ -54,7 +54,20 @@
 
   var CreatureVariation = window.MareCreatureVariation || null;
   var AmbientLife = window.MareAmbientLife || null;
+  var LightField = window.MareLightField || null;
+  var MotionEngine = window.MareMotion || null;
+  var WorldPhysics = window.MareWorldPhysics || null;
+  var SceneEngine = window.MareScene || null;
+  var DirectorEngine = window.MareDirector || null;
   var ecology = window.MareEcology ? window.MareEcology.create({ seed: 326.73 }) : null;
+  var worldPhysics = WorldPhysics ? WorldPhysics.create({ cellSize: 28 }) : null;
+  var materialField = SceneEngine ? SceneEngine.createMaterialField({ cellSize: 10 }) : null;
+  var sceneDirector = DirectorEngine ? DirectorEngine.create({ seed: 326.73, cycleSeconds: 148 }) : null;
+  var directorState = null;
+  var worldSense = {};
+  var motionPose = {};
+  var sceneStyle = {};
+  var materialSample = {};
   var ecologySteering = ecology ? ecology.createSteeringOutput() : null;
   var ecologyInfluence = ecology ? ecology.createInfluenceOutput() : null;
   var ecologyContext = {};
@@ -107,10 +120,13 @@
     { start: 400, cycle: 1100, duration: 310, phase: 2.8, direction: -1, worldDepth: 124, scale: 9.2, tendrils: [] }
   ];
   var backgroundTitans = [
-    { start: 145, cycle: 1560, duration: 270, phase: 1.1, direction: 1, worldDepth: 172, type: "mountainback" },
-    { start: 910, cycle: 1560, duration: 250, phase: 4.4, direction: -1, worldDepth: 198, type: "veilback" }
+    { start: 810, cycle: 1880, duration: 430, phase: 4.4, direction: -1, worldDepth: 202, type: "worldArm" }
+  ];
+  var backgroundTitanConcepts = [
+    { start: 0, cycle: 900, duration: 430, phase: 4.4, direction: -1, worldDepth: 202, type: "worldArm" }
   ];
   var backgroundTitanPreview = "";
+  var backgroundTitanPreviewProgress = 0.5;
   var carpet = { x: 470, y: 0, vx: -28.8, vy: 0, waitingUntil: 0, passIndex: 0 };
   var environment = {
     tide: 0,
@@ -133,6 +149,13 @@
     buoyVX: 0, buoyVY: 0, segmentLength: 5.5, initialized: false
   };
   var pointer = { down: false, inside: false, x: 0, y: 0, clientX: 0, clientY: 0 };
+  var forcedFlashlightStartedAt = -Infinity;
+  var forcedFlashlightUntil = -Infinity;
+  var flashlightMotion = LightField ? LightField.createMotion(2.35) : null;
+  var flashlightField = null;
+  var flashlightRaster = null;
+  var creatureLightFields = [];
+  var creatureLightRasters = [];
   var width = 1;
   var height = 1;
   var cameraX = 0;
@@ -141,6 +164,8 @@
   var frameRequest = 0;
   var resizeRequest = 0;
   var uiTimer = 0;
+  var instantUiFrame = 0;
+  var settingsOpen = false;
   var glossaryOpen = false;
   var glossaryPinned = false;
   var glossaryHoverId = "";
@@ -170,6 +195,9 @@
   var glossaryPin = document.querySelector("[data-glossary-pin]");
   var glossaryList = document.querySelector("[data-glossary-list]");
   var glossaryCopyStatus = document.querySelector("[data-glossary-copy-status]");
+  var settingsPanel = document.querySelector("#mare-settings");
+  var settingsToggle = document.querySelector("[data-settings-toggle]");
+  var settingsClose = document.querySelector("[data-settings-close]");
   var welcome = document.querySelector("[data-welcome]");
   var welcomeEnter = document.querySelector("[data-welcome-enter]");
   var welcomeOpen = document.querySelector("[data-welcome-open]");
@@ -183,10 +211,6 @@
       { text: "The sea was a disturbing violet, serrated by wave-top crests of a blue so dark as to be almost black, and occasionally broken by yellowkelp beds or foam of an even darker violet.", source: "Endymion, ch. 31" },
       { text: "The violet sea was very big, very empty, and our raft only a speck below, a tiny black rectangle on the reticulated violet-and-black sea.", source: "Endymion, ch. 31" },
       { text: "Floating on my back, twisting my head and neck to keep the colored dorsals in view, I kicked my way north, rising with each great movement of the violet sea, dropping into wide troughs as the ocean seemed to breathe in.", source: "Endymion, ch. 34" }
-    ] },
-    { id: "MI-01", group: "Ocean materials", name: "Surface foam", origin: "BOOK", summary: "Regular two-meter swells serrate the violet surface with crests so dark blue they appear almost black. Darker violet foam gathers and breaks along their moving peaks.", excerpts: [
-      { text: "Easy swells turning into regular two-meter waves that jostled the raft some but were far enough apart to let us ride them without undue discomfort.", source: "Endymion, ch. 31" },
-      { text: "Aenea was studying the platform again through the binoculars. ‘I don’t think they can see us now,’ she said. ‘We’re between these swells most of the time. But when we get closer ...’ ‘And when the moons rise,’ I added.", source: "Endymion, ch. 31" }
     ] },
     { id: "MI-02", group: "Ocean materials", name: "Phytoplankton bloom", origin: "BOOK", summary: "Drifting clustered specks carried by the current, feeding the small fauna and tinting Mare Infinitus violet.", excerpts: [
       { text: "The violet articulated seas are caused by a form of phytoplankton in the water and are not a result of the atmospheric scattering which grants the traveler such lovely sunsets.", source: "Endymion, ch. 31" },
@@ -247,7 +271,7 @@
     { id: "MI-53", group: "Ecological phenomena", name: "Deep quiet", origin: "SIM", summary: "A long dim interval when nearby animals settle and suspended material thins. With less surface activity competing for attention, the faint biological glow of deep creatures becomes easier—and sometimes less comfortable—to notice." },
     { id: "MI-54", group: "Ecological phenomena", name: "Distant breach", origin: "SIM", summary: "Far beyond the raft, a large animal briefly breaks the horizon and disappears again. A delayed pulse spreads outward from the breach and reaches the nearer swells long after the body is gone." },
     { id: "MI-55", group: "Ecological phenomena", name: "Abyssal shadow passage", origin: "SIM", summary: "A segmented absence crosses the deep water, displacing a faint current and occluding plankton and biological glow before sinking beyond the illuminated layers." },
-    { id: "MI-56", group: "Ecological phenomena", name: "Abyssal titan", origin: "SIM", summary: "A landscape-scale animal passes behind the pelagic life: segmented ridges, a dim eye, and slow fins or veils emerging only where its immense shadow interrupts the abyss." }
+    { id: "MI-56", group: "Ecological phenomena", name: "Abyssal titan", origin: "SIM", summary: "Only one limb of this kilometer-scale organism ever resolves through the abyss. The immense jointed arm rises from the darkness, swells as it approaches, and slowly waves its tapered end toward the light before sinking beyond sight." }
   ];
   var BESTIARY_BY_ID = Object.create(null);
   BESTIARY.forEach(function (entry) {
@@ -256,7 +280,6 @@
   });
   var INSPECTION_REGISTRY = {
     "MI-00": { mask: "sea" },
-    "MI-01": { mask: "surface" },
     "MI-02": { mask: "particle", particleKind: "plankton" },
     "MI-03": { mask: "particle", particleKind: "silt" },
     "MI-04": { mask: "particle", particleKind: "bubble" },
@@ -348,7 +371,13 @@
 
   function platformGeometry() {
     var line = waterlineY();
-    var left = width - PLATFORM_VISIBLE_WIDTH;
+    // In screensaver mode the persistent high-contrast station migrates a few
+    // real pixels over several minutes. This is intentionally imperceptible as
+    // camera motion, but keeps its beams from occupying one OLED column forever.
+    var burnInDrift = screensaverMode
+      ? Math.round(Math.sin(simulationTime * Math.PI / 240) * 5)
+      : 0;
+    var left = width - PLATFORM_VISIBLE_WIDTH + burnInDrift;
     var right = left + PLATFORM_WORLD_WIDTH;
     var deck = line - 36;
     var pylonCount = Math.floor(PLATFORM_WORLD_WIDTH / 17) + 1;
@@ -444,14 +473,14 @@
     });
   }
 
-  function setGlossaryOpen(nextOpen) {
+  function setGlossaryOpen(nextOpen, instant) {
     if (screensaverMode) nextOpen = false;
+    if (nextOpen && settingsOpen) setSettingsOpen(false, instant);
     glossaryOpen = !!nextOpen;
     if (glossaryPanel) glossaryPanel.hidden = !glossaryOpen;
     if (glossaryToggle) glossaryToggle.setAttribute("aria-expanded", String(glossaryOpen));
     if (glossaryOpen) {
-      shell.classList.remove("ui-hidden");
-      window.clearTimeout(uiTimer);
+      showInterface(instant === true);
       if (glossaryPosition) {
         window.requestAnimationFrame(function () {
           positionGlossary(glossaryPosition.left, glossaryPosition.top, false);
@@ -463,7 +492,21 @@
       glossaryHoverId = "";
       if (glossaryPinned) setGlossaryPinned(false);
       if (glossaryCopyStatus) glossaryCopyStatus.textContent = "";
-      showInterface();
+      showInterface(instant === true);
+    }
+  }
+
+  function setSettingsOpen(nextOpen, instant) {
+    if (screensaverMode) nextOpen = false;
+    if (nextOpen && glossaryOpen) setGlossaryOpen(false, instant);
+    settingsOpen = !!nextOpen;
+    if (settingsPanel) settingsPanel.hidden = !settingsOpen;
+    if (settingsToggle) settingsToggle.setAttribute("aria-expanded", String(settingsOpen));
+    if (settingsOpen) {
+      showInterface(instant === true);
+      if (settingsClose) settingsClose.focus({ preventScroll: true });
+    } else {
+      showInterface(instant === true);
     }
   }
 
@@ -560,6 +603,8 @@
     shell.classList.toggle("welcome-open", opening);
     if (opening) {
       welcomePreviouslyFocused = document.activeElement;
+      if (settingsOpen) setSettingsOpen(false, false);
+      if (glossaryOpen) setGlossaryOpen(false, false);
       setWelcomeBackgroundInert(true);
       window.clearTimeout(uiTimer);
       if (welcomeEnter) welcomeEnter.focus({ preventScroll: true });
@@ -621,8 +666,9 @@
 
   function inspectionSubjectAt(x, y, time, targetId) {
     if (INSPECTION_REGISTRY[targetId] && INSPECTION_REGISTRY[targetId].mask === "swimmer") {
-      for (var swimmerIndex = swimmers.length - 1; swimmerIndex >= 0; swimmerIndex -= 1) {
-        var swimmer = swimmers[swimmerIndex];
+      var inspectionSwimmers = swimmersInDrawOrder();
+      for (var swimmerIndex = inspectionSwimmers.length - 1; swimmerIndex >= 0; swimmerIndex -= 1) {
+        var swimmer = inspectionSwimmers[swimmerIndex];
         if (swimmerInspectionId(swimmer.kind) !== targetId) continue;
         if (swimmerPixelContains(swimmer, x, y, time)) return swimmer;
       }
@@ -665,8 +711,9 @@
       return "MI-20";
     }
 
-    for (var swimmerIndex = swimmers.length - 1; swimmerIndex >= 0; swimmerIndex -= 1) {
-      var swimmer = swimmers[swimmerIndex];
+    var hitSwimmers = swimmersInDrawOrder();
+    for (var swimmerIndex = hitSwimmers.length - 1; swimmerIndex >= 0; swimmerIndex -= 1) {
+      var swimmer = hitSwimmers[swimmerIndex];
       if (swimmerPixelContains(swimmer, x, y, time)) {
         return swimmerInspectionId(swimmer.kind);
       }
@@ -687,11 +734,7 @@
     }
 
     var backgroundTitan = activeBackgroundTitan(time, geometry.line);
-    if (backgroundTitan) {
-      var titanX = (x - backgroundTitan.state.x) / backgroundTitan.state.radiusX;
-      var titanY = (y - backgroundTitan.state.y) / backgroundTitan.state.radiusY;
-      if (titanX * titanX + titanY * titanY <= 1) return "MI-56";
-    }
+    if (backgroundTitan && backgroundTitanContains(backgroundTitan, x, y, time)) return "MI-56";
 
     if (mooring.initialized) {
       if (Math.abs(x - mooring.buoyX) <= 6 && Math.abs(y - (mooring.buoyY - 2)) <= 9) return "MI-34";
@@ -762,8 +805,6 @@
       if (y >= geometry.deck - 100 && y <= geometry.line + 3) return "MI-31";
     }
 
-    var localSurface = surfaceY(x, time, geometry.line, raft.x);
-    if (Math.abs(y - localSurface) <= 6) return "MI-01";
     if (y >= geometry.line) return "MI-00";
     var planet = planetPosition(time);
     var planetDx = x - planet.x;
@@ -953,7 +994,7 @@
   function inspectionSearchRadius(id) {
     if (id === "MI-18") return 100;
     if (id === "MI-31" || id === "MI-32" || id === "MI-33") return 34;
-    if (id === "MI-01" || id === "MI-41") return 22;
+    if (id === "MI-41") return 22;
     if (id === "MI-17") return 42;
     return 14;
   }
@@ -1394,7 +1435,7 @@
         ? sampleFluid(col * SURFACE_CELL, fluid.line + 2).y
         : 0;
       var windWave = Math.sin(col * 0.37 + time * (0.7 + storm * 0.8)) *
-        environment.wind * 0.035 * tuning.waveEnergy;
+        environment.wind * 0.035 * tuning.waveEnergy * (directorState ? directorState.surfaceActivity : 1);
       surface.nextVelocity[col] = (
         surface.velocity[col] + (laplacian * 24 + fluidLift * 0.15 + windWave) * dt
       ) * Math.pow(0.986 - storm * 0.003, dt * 60);
@@ -1550,6 +1591,21 @@
     return clamp(base + sizeDepth + (seed - 0.5) * 0.1, 0.12, 0.92);
   }
 
+  function swimmersInDrawOrder(kindFilter) {
+    var ordered = swimmers.filter(function (swimmer) {
+      return !kindFilter || swimmer.kind === kindFilter;
+    });
+    if (SceneEngine) return SceneEngine.sortBackToFront(ordered);
+    return ordered.sort(function (a, b) {
+      var aDepth = Number.isFinite(a.visualDepth) ? a.visualDepth : a.depthTarget;
+      var bDepth = Number.isFinite(b.visualDepth) ? b.visualDepth : b.depthTarget;
+      // Farther planes are painted first; shallow animals genuinely occlude them.
+      if (aDepth !== bDepth) return bDepth - aDepth;
+      if (a.y !== b.y) return b.y - a.y;
+      return (a.renderOrder || 0) - (b.renderOrder || 0);
+    });
+  }
+
   function createSwimmers() {
     var line = waterlineY();
     var waterDepth = Math.max(24, height - line);
@@ -1571,8 +1627,10 @@
                   ? "eel"
                   : "fish";
       var swimmerSeed = hash(i * 23.7 + 3);
-      var swimmerSize = 0.78 + hash(i * 31.9 + 11) * 0.58;
-      var depthTarget = swimmerDepthPreference(kind, swimmerSize, swimmerSeed);
+      var physicalSize = 0.78 + hash(i * 31.9 + 11) * 0.58;
+      var depthTarget = swimmerDepthPreference(kind, physicalSize, swimmerSeed);
+      var visualDepth = clamp(depthTarget + (hash(i * 43.1 + 29) - 0.5) * 0.16, 0.08, 0.96);
+      var swimmerSize = physicalSize * lerp(1.04, 0.76, visualDepth);
       var schoolCount = Math.max(3, Math.ceil(width / 120));
       var schoolId = Math.floor(i / 7) % schoolCount;
       var swimmerX = kind === "fish"
@@ -1587,13 +1645,18 @@
         seed: swimmerSeed,
         kind: kind,
         size: swimmerSize,
+        physicalSize: physicalSize,
+        visualDepth: visualDepth,
+        renderOrder: i,
         depthTarget: depthTarget,
         school: schoolId,
         transitSchool: kind === "fish" && schoolId < 2,
         transitDirection: schoolId % 2 === 0 ? 1 : -1,
-        direction: 1
+        direction: 1,
+        directionLockUntil: 0
       };
       if (CreatureVariation) swimmer.variation = CreatureVariation.createTraits(kind, swimmerSeed, swimmerSize);
+      if (MotionEngine) MotionEngine.ensureAgent(swimmer);
       if (ecology) ecology.ensureAgent(swimmer, i, kind);
       swimmers.push(swimmer);
     }
@@ -1764,6 +1827,12 @@
       swimmerTentacleRoot(swimmer, tentacle, count, root);
       var segmentCount = swimmer.kind === "jelly" ? 7 : 6;
       var segmentLength = Math.max(0.9, traits.tentacleLength / segmentCount);
+      if (MotionEngine) {
+        swimmer.tentacles.push(MotionEngine.createChain(
+          root.x, root.y, segmentCount, segmentLength, swimmer.seed + tentacle * 0.17
+        ));
+        continue;
+      }
       var chain = { points: [], previous: [], segmentLength: segmentLength };
       for (var point = 0; point <= segmentCount; point += 1) {
         var seedWave = Math.sin(swimmer.seed * 41 + tentacle * 1.9 + point * 0.7) * point * 0.12;
@@ -1787,6 +1856,18 @@
     for (var tentacle = 0; tentacle < swimmer.tentacles.length; tentacle += 1) {
       var chain = swimmer.tentacles[tentacle];
       swimmerTentacleRoot(swimmer, tentacle, swimmer.tentacles.length, root);
+      if (MotionEngine && chain.points instanceof Float32Array) {
+        MotionEngine.updateChain(chain, dt, root.x, root.y, sampleFluid, {
+          drag: swimmer.kind === "jelly" ? 0.948 : 0.936,
+          gravity: swimmer.kind === "jelly" ? 0.004 : 0.006,
+          flowScale: swimmer.kind === "jelly" ? 0.24 : 0.2,
+          flutter: swimmer.kind === "jelly" ? 0.006 : 0.004,
+          time: time,
+          seed: swimmer.seed + tentacle * 0.31,
+          iterations: 4
+        });
+        continue;
+      }
       var rootPoint = chain.points[0];
       if (Math.abs(rootPoint.x - root.x) + Math.abs(rootPoint.y - root.y) > 48) {
         initializeSwimmerTentacles(swimmer);
@@ -2048,6 +2129,12 @@
     injectFluid(actors.raftX - 10, geometry.line + 5, actors.raftVX * 0.06, actors.raftVY * 0.04, 18, 0);
     for (var leviathanIndex = 0; leviathanIndex < actors.leviathans.length; leviathanIndex += 1) {
       var leviathanActor = actors.leviathans[leviathanIndex];
+      if (worldPhysics && leviathanActor.motion) {
+        worldPhysics.coupleBody(leviathanActor, dt, function (x, y, forceX, forceY, radius) {
+          injectFluid(x, y, forceX, forceY, radius, 0.004);
+        }, { strength: 0.82 });
+        continue;
+      }
       injectFluid(
         leviathanActor.x - leviathanActor.direction * 28 * leviathanActor.scale,
         leviathanActor.y,
@@ -2059,6 +2146,12 @@
     }
     for (var swimmerIndex = 0; swimmerIndex < actors.swimmers.length; swimmerIndex += 1) {
       var swimmerActor = actors.swimmers[swimmerIndex];
+      if (worldPhysics) {
+        worldPhysics.coupleBody(swimmerActor, dt, function (x, y, forceX, forceY, radius) {
+          injectFluid(x, y, forceX, forceY, radius, 0);
+        }, { strength: 0.72 });
+        continue;
+      }
       var swimmerWake = swimmerWakeProfile(swimmerActor);
       var wakeX = swimmerActor.x - swimmerActor.direction * swimmerWake.radius * 0.42;
       injectFluid(
@@ -2097,14 +2190,29 @@
     }
     var backgroundTitan = activeBackgroundTitan(time, geometry.line);
     if (backgroundTitan) {
-      injectFluid(
-        backgroundTitan.state.x,
-        backgroundTitan.state.y,
-        backgroundTitan.encounter.direction * 0.018,
-        Math.sin(time * 0.025 + backgroundTitan.index) * 0.004,
-        Math.min(130, backgroundTitan.state.radiusY * 1.25),
-        0.0015
-      );
+      for (var titanCurrentSample = 0; titanCurrentSample < 3; titanCurrentSample += 1) {
+        var titanArmAmount = 0.2 + titanCurrentSample * 0.3;
+        var titanArmPoint = backgroundTitanArmPoint(backgroundTitan, titanArmAmount, time);
+        var titanCurrentRadius = clamp(titanArmPoint.thickness * 1.25, 18, 62);
+        var titanCurrentOffset = titanCurrentRadius * 0.58;
+        var titanCurrentForce = (0.0022 + backgroundTitan.state.approach * 0.0014) * backgroundTitan.state.fade;
+        injectFluid(
+          titanArmPoint.x,
+          titanArmPoint.y - titanCurrentOffset,
+          backgroundTitan.encounter.direction * titanCurrentForce * 0.42,
+          -titanCurrentForce,
+          titanCurrentRadius,
+          0
+        );
+        injectFluid(
+          titanArmPoint.x,
+          titanArmPoint.y + titanCurrentOffset,
+          backgroundTitan.encounter.direction * titanCurrentForce * 0.42,
+          titanCurrentForce,
+          titanCurrentRadius,
+          0
+        );
+      }
     }
     if (ecologyEvent && ecologyEvent.active) {
       var eventX = ecologyEvent.x * width;
@@ -2233,6 +2341,7 @@
 
   function updateSwimmers(dt, time, geometry, actors) {
     var activeColossalWarning = activeColossalEncounter(time, geometry.line);
+    if (worldPhysics) worldPhysics.rebuild(swimmers);
     for (var i = 0; i < swimmers.length; i += 1) {
       var swimmer = swimmers[i];
       var sense = 13;
@@ -2243,6 +2352,17 @@
       var flow = sampleFluid(swimmer.x, swimmer.y);
       var desiredX = (rightFood - leftFood) * 1.7 + (swimmer.seed - 0.48) * 0.12;
       var desiredY = (downFood - upFood) * 1.45 + Math.sin(time * 0.2 + swimmer.seed * 19) * 0.035;
+      if (worldPhysics) {
+        var perceived = worldPhysics.sense(swimmer, swimmer.kind === "fish" ? 34 : 22, function (other) {
+          return Math.abs((other.visualDepth || 0.5) - (swimmer.visualDepth || 0.5)) < 0.18;
+        }, worldSense);
+        desiredX += perceived.separationX * 0.82;
+        desiredY += perceived.separationY * 0.72;
+        if (swimmer.kind === "fish" && perceived.neighborCount) {
+          desiredX += (perceived.velocityX - swimmer.vx) * 0.11 + (perceived.centerX - swimmer.x) * 0.0025;
+          desiredY += (perceived.velocityY - swimmer.vy) * 0.11 + (perceived.centerY - swimmer.y) * 0.0025;
+        }
+      }
       var maxSpeed = 1.45;
       var movementScale = 7;
       var feedingRate = 0.016;
@@ -2259,8 +2379,8 @@
         movementScale = 5.5;
         feedingRate = 0.011;
       } else if (swimmer.kind === "eel") {
-        desiredX += Math.sin(time * 1.7 + swimmer.seed * 23) * 0.24;
-        desiredY += Math.cos(time * 1.2 + swimmer.seed * 29) * 0.12;
+        desiredX += Math.sin(time * 0.28 + swimmer.seed * 23) * 0.12;
+        desiredY += Math.cos(time * 0.22 + swimmer.seed * 29) * 0.07;
         maxSpeed = 1.75;
         movementScale = 8.2;
         feedingRate = 0.013;
@@ -2428,20 +2548,52 @@
 
       var nearestPrey = null;
       var nearestPreyDistance2 = Infinity;
+      var preyCandidates = swimmer.kind === "shark" ? [] : null;
       for (var otherIndex = 0; otherIndex < swimmers.length; otherIndex += 1) {
         var other = swimmers[otherIndex];
         if (other === swimmer) continue;
         var otherDx = other.x - swimmer.x;
         var otherDy = other.y - swimmer.y;
         var otherDistance2 = otherDx * otherDx + otherDy * otherDy;
-        if (swimmer.kind === "shark" && other.kind === "fish" && otherDistance2 < nearestPreyDistance2) {
+        var visualDepthGap = Math.abs((swimmer.visualDepth || swimmer.depthTarget) - (other.visualDepth || other.depthTarget));
+        if (visualDepthGap < 0.14 && otherDistance2 > 0.2) {
+          var swimmerExtents = swimmerCollisionExtents(swimmer, {});
+          var otherExtents = swimmerCollisionExtents(other, {});
+          var separationRadius = Math.max(7, (swimmerExtents.x + otherExtents.x) * 0.82);
+          if (otherDistance2 < separationRadius * separationRadius) {
+            var overlapDistance = Math.sqrt(otherDistance2);
+            var overlapForce = (1 - overlapDistance / separationRadius) * 0.74 * (1 - visualDepthGap / 0.14);
+            desiredX -= otherDx / overlapDistance * overlapForce;
+            desiredY -= otherDy / overlapDistance * overlapForce * 0.82;
+          }
+        }
+        if (
+          swimmer.kind === "shark" && other.kind === "fish" &&
+          visualDepthGap < 0.24 && otherDistance2 < nearestPreyDistance2
+        ) {
           nearestPrey = other;
           nearestPreyDistance2 = otherDistance2;
         }
+        if (
+          preyCandidates && other.kind === "fish" && visualDepthGap < 0.24 &&
+          otherDistance2 < 118 * 118 && otherDistance2 > 1
+        ) preyCandidates.push(other);
         if (swimmer.kind === "fish" && other.kind === "shark" && otherDistance2 < 78 * 78 && otherDistance2 > 1) {
           var sharkFear = (1 - Math.sqrt(otherDistance2) / 78) * 2.1;
           desiredX -= otherDx / Math.sqrt(otherDistance2) * sharkFear;
           desiredY -= otherDy / Math.sqrt(otherDistance2) * sharkFear;
+        }
+      }
+      if (preyCandidates && preyCandidates.length && worldPhysics) {
+        nearestPrey = worldPhysics.updateAttention(swimmer, preyCandidates, time, function (candidate) {
+          var attentionDx = candidate.x - swimmer.x;
+          var attentionDy = candidate.y - swimmer.y;
+          return 1 - Math.sqrt(attentionDx * attentionDx + attentionDy * attentionDy) / 118;
+        }, 3.4);
+        if (nearestPrey) {
+          var focusedDx = nearestPrey.x - swimmer.x;
+          var focusedDy = nearestPrey.y - swimmer.y;
+          nearestPreyDistance2 = focusedDx * focusedDx + focusedDy * focusedDy;
         }
       }
       if (nearestPrey && nearestPreyDistance2 < 118 * 118 && nearestPreyDistance2 > 1) {
@@ -2499,6 +2651,9 @@
         }
       }
 
+      var directedActivity = directorState ? directorState.faunaActivity : 1;
+      desiredX *= directedActivity;
+      desiredY *= directedActivity;
       swimmer.vx += (flow.x * 0.48 * behaviorFlowScale + desiredX - swimmer.vx) * dt * 1.7;
       swimmer.vy += (flow.y * 0.48 * behaviorFlowScale + desiredY - swimmer.vy) * dt * 1.7;
       var speed = Math.sqrt(swimmer.vx * swimmer.vx + swimmer.vy * swimmer.vy);
@@ -2509,7 +2664,11 @@
       var nextX = swimmer.x + swimmer.vx * dt * movementScale;
       var nextY = swimmer.y + swimmer.vy * dt * movementScale;
       moveSwimmerAroundStructure(swimmer, nextX, nextY, geometry);
-      swimmer.direction = swimmer.vx >= 0 ? 1 : -1;
+      var requestedDirection = swimmer.vx > 0.14 ? 1 : swimmer.vx < -0.14 ? -1 : swimmer.direction;
+      if (requestedDirection !== swimmer.direction && time >= (swimmer.directionLockUntil || 0)) {
+        swimmer.direction = requestedDirection;
+        swimmer.directionLockUntil = time + 2.8 + swimmer.seed * 2.4;
+      }
       var eaten = consumePlankton(swimmer.x, swimmer.y, dt * feedingRate);
       swimmer.energy = clamp(swimmer.energy + eaten * 1.9 - dt * 0.0035, 0, 1.2);
 
@@ -2530,6 +2689,7 @@
         swimmer.energy = 0.45;
         ejectSwimmerFromStructure(swimmer, geometry);
       }
+      if (MotionEngine) MotionEngine.updateAgent(swimmer, dt, time);
       updateSwimmerTentacles(swimmer, dt, time);
     }
   }
@@ -2694,28 +2854,188 @@
         pose.direction = -1;
       }
     }
+    if (index === 0 && time < forcedFlashlightUntil) {
+      pose.x = geometry.left + Math.min(17, span * 0.13);
+      pose.direction = -1;
+      pose.action = "flashlight";
+      pose.flashlightProgress = clamp((time - forcedFlashlightStartedAt) / 9, 0, 1);
+    } else {
+      pose.flashlightProgress = -1;
+    }
     return pose;
   }
 
-  function drawResidentFlashlight(pose, palette, geometry, time) {
-    if (pose.action !== "flashlight") return;
+  function updatePlatformFlashlight(time, dt, geometry) {
+    flashlightField = null;
+    if (!LightField || !flashlightMotion) return;
+    var pose = platformResidentPose(0, time, geometry, {});
+    if (pose.action !== "flashlight") {
+      flashlightMotion.active = false;
+      return;
+    }
     var facing = pose.direction || -1;
-    var sourceX = pose.x + facing * 4;
-    var sourceY = pose.deck - 4;
-    var reach = Math.min(58, Math.max(28, geometry.line - sourceY + 24));
+    var structureX = Math.round(structure.sway);
+    var structureY = Math.round(structure.sag);
+    var sourceX = pose.x + facing * 4 + structureX;
+    var sourceY = pose.deck - 4 + structureY;
+    var sweep = pose.flashlightProgress >= 0
+      ? Math.sin((pose.flashlightProgress - 0.5) * Math.PI)
+      : Math.sin(time * 0.38 + pose.phase * 0.08);
+    var aimX = sourceX + facing * (75 + sweep * 19);
+    var aimY = geometry.line + 22 + Math.sin(time * 0.23 + 1.7) * 4;
+    var targetAngle = Math.atan2(aimY - sourceY, aimX - sourceX);
+    if (!flashlightMotion.active) LightField.resetMotion(flashlightMotion, targetAngle);
+    LightField.stepMotion(flashlightMotion, targetAngle, dt, 8.2, 5.7);
+    flashlightField = LightField.build({
+      originX: sourceX,
+      originY: sourceY,
+      angle: flashlightMotion.angle,
+      halfAngle: 0.15,
+      rayCount: 17,
+      airSteps: 15,
+      waterSteps: 25,
+      maxAirDistance: 145,
+      underwaterDistance: 66,
+      refractiveIndex: 1.34,
+      attenuationDepth: 50,
+      surfaceAt: function (x) {
+        return surfaceY(x, time, geometry.line, raft.x);
+      }
+    });
+  }
+
+  function drawLightField(field, reusableRaster, colors, strength, motes) {
+    if (!LightField || !field) return reusableRaster;
+    var raster = LightField.rasterize(field, width, height, reusableRaster);
+    if (raster.maxX < raster.minX) return raster;
     ctx.save();
-    ctx.globalAlpha = 0.28;
-    for (var beamStep = 0; beamStep <= reach; beamStep += 3) {
-      var beamX = sourceX + facing * beamStep * 0.54;
-      var beamY = sourceY + beamStep;
-      if (hash(beamStep * 9.7 + Math.floor(time * 2)) > 0.24) pixelRect(beamX, beamY, 1, 1, palette.foam);
-      if (beamStep > reach * 0.45 && beamStep % 6 === 0) {
-        pixelRect(beamX + facing * 2, beamY, 1, 1, palette.bubble);
+    for (var y = raster.minY; y <= raster.maxY; y += 1) {
+      for (var x = raster.minX; x <= raster.maxX; x += 1) {
+        var rasterIndex = y * width + x;
+        var lightAlpha = raster.alpha[rasterIndex] * strength;
+        if (lightAlpha <= 0.01) continue;
+        var underwater = raster.medium[rasterIndex] === 1;
+        var progress = raster.progress[rasterIndex];
+        var colorAmount = underwater ? smoothstep(clamp(progress * 4, 0, 1)) : 0;
+        var lightColor = "rgb(" +
+          Math.round(lerp(colors.start[0], colors.end[0], colorAmount)) + ", " +
+          Math.round(lerp(colors.start[1], colors.end[1], colorAmount)) + ", " +
+          Math.round(lerp(colors.start[2], colors.end[2], colorAmount)) + ")";
+        ctx.globalAlpha = lightAlpha;
+        pixelRect(x, y, 1, 1, lightColor);
+        if (
+          motes && underwater &&
+          hash(Math.floor(screenToWorldX(x)) * 17.7 + y * 31.1) > 0.985 &&
+          planktonVisibilityAt(x, y) > 0.28
+        ) {
+          ctx.globalAlpha = Math.min(0.48, lightAlpha + 0.12);
+          pixelRect(x, y, 1, 1, colors.mote);
+        }
       }
     }
-    ctx.globalAlpha = 0.52;
-    pixelRect(sourceX, sourceY, 2, 1, palette.lamp);
     ctx.restore();
+    return raster;
+  }
+
+  function drawPlatformFlashlight() {
+    if (!flashlightField) return;
+    flashlightRaster = drawLightField(
+      flashlightField,
+      flashlightRaster,
+      { start: [255, 226, 90], end: [190, 203, 142], mote: "#fff0a0" },
+      1,
+      true
+    );
+  }
+
+  function drawPlatformFlashlightSurfaceGlints() {
+    if (!flashlightField) return;
+    ctx.save();
+    var centerRay = Math.floor(flashlightField.rays.length * 0.5);
+    for (var rayIndex = centerRay - 2; rayIndex <= centerRay + 2; rayIndex += 2) {
+      ctx.globalAlpha = rayIndex === centerRay ? 0.66 : 0.38;
+      var hit = flashlightField.rays[rayIndex].hit;
+      pixelRect(hit.x, hit.y, 1, 1, "#ffe25a");
+    }
+    ctx.restore();
+  }
+
+  function updateCreatureLightFields(time, geometry) {
+    creatureLightFields.length = 0;
+    if (!LightField) return;
+    for (var index = 0; index < leviathans.length; index += 1) {
+      var leviathan = leviathans[index];
+      var traits = leviathan.variation;
+      var scale = leviathan.scale;
+      var direction = leviathan.direction || 1;
+      var lengthVariation = traits ? clamp(traits.bodyLength / Math.max(1, 69 * scale), 0.78, 1.24) : 1;
+      var faceX = leviathan.x + direction * 34 * lengthVariation * 0.91 * scale;
+      var lanternX = faceX + direction * 17 * scale;
+      var lanternY = leviathan.y - 10 * scale;
+      if (
+        lanternX < -80 || lanternX > width + 80 ||
+        lanternY < geometry.line + 1 || lanternY > height + 30
+      ) continue;
+      var lanternPulse = 0.72 + Math.sin(time * 0.19 + leviathan.phase) * 0.12;
+      var lanternAngle = Math.atan2(
+        0.2 + Math.sin(time * 0.11 + leviathan.phase) * 0.08,
+        direction
+      );
+      var field = LightField.buildSubmerged({
+        originX: lanternX,
+        originY: lanternY,
+        angle: lanternAngle,
+        halfAngle: 0.18 + (traits ? traits.glowDensity * 0.035 : 0),
+        rayCount: 11,
+        waterSteps: 19,
+        distance: 38 + scale * 24,
+        attenuationDepth: 44,
+        surfaceAt: function (x) {
+          return surfaceY(x, time, geometry.line, raft.x);
+        }
+      });
+      field.renderStrength = lanternPulse * (traits ? 0.72 + traits.glowStrength * 0.2 : 0.8);
+      creatureLightFields.push(field);
+    }
+    var smallEmitterBudget = 6;
+    for (var swimmerIndex = 0; swimmerIndex < swimmers.length && smallEmitterBudget > 0; swimmerIndex += 1) {
+      var swimmer = swimmers[swimmerIndex];
+      var swimmerTraits = swimmer.variation;
+      if (!swimmerTraits || swimmerTraits.glowStrength < 0.72) continue;
+      if (swimmer.kind !== "jelly" && swimmer.kind !== "hectapus" && swimmer.kind !== "seaGiant") continue;
+      if (swimmer.x < -30 || swimmer.x > width + 30 || swimmer.y < geometry.line + 2) continue;
+      var swimmerDirection = swimmer.direction || 1;
+      var swimmerField = LightField.buildSubmerged({
+        originX: swimmer.x + swimmerDirection * Math.max(2, swimmerTraits.bodyLength * 0.35),
+        originY: swimmer.y - Math.max(0, swimmerTraits.bodyHeight * 0.18),
+        angle: Math.atan2(0.18 + Math.sin(time * 0.13 + swimmer.seed * 19) * 0.06, swimmerDirection),
+        halfAngle: swimmer.kind === "jelly" ? 0.34 : 0.22,
+        rayCount: 7,
+        waterSteps: 11,
+        distance: swimmer.kind === "seaGiant" ? 32 : 18,
+        attenuationDepth: 26,
+        surfaceAt: function (x) {
+          return surfaceY(x, time, geometry.line, raft.x);
+        }
+      });
+      swimmerField.renderStrength = (0.14 + swimmerTraits.glowStrength * 0.13) *
+        (directorState ? directorState.lightActivity : 1);
+      creatureLightFields.push(swimmerField);
+      smallEmitterBudget -= 1;
+    }
+  }
+
+  function drawCreatureLightFields() {
+    for (var fieldIndex = 0; fieldIndex < creatureLightFields.length; fieldIndex += 1) {
+      creatureLightRasters[fieldIndex] = drawLightField(
+        creatureLightFields[fieldIndex],
+        creatureLightRasters[fieldIndex],
+        { start: [155, 237, 255], end: [83, 157, 194], mote: "#c8f7ff" },
+        creatureLightFields[fieldIndex].renderStrength,
+        true
+      );
+    }
+    creatureLightRasters.length = creatureLightFields.length;
   }
 
   function drawSky(time, palette, line) {
@@ -3004,6 +3324,13 @@
   function updateLeviathans(dt, time, geometry) {
     for (var i = 0; i < leviathans.length; i += 1) {
       var leviathan = leviathans[i];
+      leviathan.kind = "leviathan";
+      leviathan.seed = Number.isFinite(leviathan.seed) ? leviathan.seed : hash(i * 41.7 + 8.2);
+      leviathan.physicalSize = leviathan.scale;
+      leviathan.visualDepth = leviathan.depth;
+      if (!leviathan.variation && CreatureVariation) {
+        leviathan.variation = CreatureVariation.createTraits("leviathan", leviathan.seed, leviathan.scale);
+      }
       if (!leviathan.y) {
         leviathan.y = geometry.line + (height - geometry.line) * leviathan.depth;
       }
@@ -3035,6 +3362,7 @@
       } else if (leviathan.direction < 0 && worldX < activeWorldLeft() - 155) {
         leviathan.x = worldToScreenX(activeWorldRight() + 155);
       }
+      if (MotionEngine) MotionEngine.updateAgent(leviathan, dt, time);
     }
   }
 
@@ -3044,6 +3372,8 @@
     var scale = leviathan.scale;
     var direction = leviathan.direction;
     var traits = leviathan.variation;
+    var leviathanPose = MotionEngine && leviathan.motion ? MotionEngine.poseFor(leviathan, {}) : null;
+    var leviathanPhase = leviathanPose ? leviathanPose.phase : time * 0.18 + leviathan.phase;
     var lengthVariation = traits ? clamp(traits.bodyLength / Math.max(1, 69 * scale), 0.78, 1.24) : 1;
     var heightVariation = traits ? clamp(traits.bodyHeight / Math.max(1, 19 * scale), 0.76, 1.3) : 1;
     var anatomicalHalfLength = 34 * lengthVariation;
@@ -3056,7 +3386,7 @@
         var glowRadius = (26 + hash(glowSeed + 4.3) * 36) * scale;
         var glowX = x + Math.cos(glowAngle) * glowRadius * 1.28;
         var glowY = y + Math.sin(glowAngle) * glowRadius * 0.42;
-        var glowPulse = (Math.sin(time * 0.34 + glowPoint * 0.71 + leviathan.phase) + 1) * 0.5;
+        var glowPulse = (Math.sin(leviathanPhase * 0.72 + glowPoint * 0.71 + leviathan.phase) + 1) * 0.5;
         ctx.globalAlpha = (0.12 + glowPulse * 0.2) * (traits ? traits.glowStrength : 1);
         pixelRect(glowX, glowY, 1, 1, glowPoint % 4 === 0 ? palette.plankton : palette.bubble);
         if (glowPoint % 6 === 0) pixelRect(glowX + direction, glowY + (glowPoint % 12 === 0 ? 1 : -1), 1, 1, palette.bubble);
@@ -3109,14 +3439,14 @@
       var tentacleLength = (traits ? traits.tentacleLength * 0.72 / Math.max(0.1, scale) : 17 + (tentacle % 2) * 6) * scale;
       for (var step = 0; step < tentacleLength; step += 2) {
         var tentacleX = x - direction * (anatomicalHalfLength * 0.91 * scale + step);
-        var tentacleY = tentacleBaseY + Math.sin(time * 0.18 + leviathan.phase + tentacle + step * 0.14) * (2 + tentacle % 2);
+        var tentacleY = tentacleBaseY + Math.sin(leviathanPhase + leviathan.phase + tentacle + step * 0.14) * (2 + tentacle % 2);
         pixelRect(tentacleX, tentacleY, 1, 1, palette.creature);
         if (step % 8 === 0) pixelRect(tentacleX - direction, tentacleY + (tentacle % 2 ? 1 : -1), 1, 1, palette.steelDark);
       }
     }
     var tailRootX = x - direction * anatomicalHalfLength * 0.88 * scale;
-    pixelLine(tailRootX, y, tailRootX - direction * 14 * scale, y - 10 * scale + Math.sin(time * 0.16 + leviathan.phase) * 2, palette.creature, Math.max(1, Math.round(scale * 2)));
-    pixelLine(tailRootX, y, tailRootX - direction * 14 * scale, y + 10 * scale + Math.sin(time * 0.16 + leviathan.phase + 2.1) * 2, palette.creature, Math.max(1, Math.round(scale * 2)));
+    pixelLine(tailRootX, y, tailRootX - direction * 14 * scale, y - 10 * scale + Math.sin(leviathanPhase) * 2, palette.creature, Math.max(1, Math.round(scale * 2)));
+    pixelLine(tailRootX, y, tailRootX - direction * 14 * scale, y + 10 * scale + Math.sin(leviathanPhase + 2.1) * 2, palette.creature, Math.max(1, Math.round(scale * 2)));
     pixelLine(x - direction * 2 * scale, y - 7 * scale, x - direction * 9 * scale, y - 15 * scale, palette.creature, Math.max(1, Math.round(scale * 1.5)));
     var faceX = x + direction * anatomicalHalfLength * 0.91 * scale;
     pixelLine(faceX, y - 4 * scale, faceX + direction * 16 * scale, y - 10 * scale, palette.creature, 1);
@@ -3137,20 +3467,41 @@
   function backgroundTitanState(time, line, encounter) {
     var local = (time - encounter.start) % encounter.cycle;
     if (local < 0) local += encounter.cycle;
-    if (backgroundTitanPreview && backgroundTitanPreview === encounter.type) local = encounter.duration * 0.5;
+    if (backgroundTitanPreview && backgroundTitanPreview === encounter.type) {
+      local = encounter.duration * backgroundTitanPreviewProgress;
+    }
     if (local > encounter.duration) return null;
     var progress = local / encounter.duration;
-    var radiusX = encounter.type === "veilback" ? Math.max(245, width * 0.72) : Math.max(290, width * 0.86);
-    var radiusY = encounter.type === "veilback" ? 92 : 76;
-    var margin = radiusX * 0.88;
-    var x = encounter.direction > 0
-      ? -margin + progress * (width + margin * 2)
-      : width + margin - progress * (width + margin * 2);
-    var y = line + encounter.worldDepth + Math.sin(time * 0.018 + encounter.phase) * 2;
-    return { x: x, y: y, radiusX: radiusX, radiusY: radiusY, progress: progress };
+    var approach = Math.sin(progress * Math.PI);
+    var baseRadiusX = Math.max(260, width * 0.78);
+    var baseRadiusY = Math.max(58, Math.min(96, height * 0.21));
+    var perspectiveScale = 0.66 + approach * 0.42;
+    var radiusX = baseRadiusX * perspectiveScale;
+    var radiusY = baseRadiusY * perspectiveScale;
+    var x = width * 0.42 + encounter.direction * Math.sin((progress - 0.5) * Math.PI) * width * 0.12;
+    var visibleDepth = Math.min(encounter.worldDepth, Math.max(48, (height - line) * 0.76));
+    var arcRise = approach * radiusY * 0.58;
+    var y = line + visibleDepth - arcRise + Math.sin(progress * Math.PI * 2 + encounter.phase) * radiusY * 0.1;
+    var fade = smoothstep(clamp(approach * 1.6, 0, 1));
+    return {
+      x: x,
+      y: y,
+      radiusX: radiusX,
+      radiusY: radiusY,
+      progress: progress,
+      approach: approach,
+      fade: fade
+    };
   }
 
   function activeBackgroundTitan(time, line) {
+    if (backgroundTitanPreview) {
+      for (var conceptIndex = 0; conceptIndex < backgroundTitanConcepts.length; conceptIndex += 1) {
+        var concept = backgroundTitanConcepts[conceptIndex];
+        if (concept.type !== backgroundTitanPreview) continue;
+        return { encounter: concept, state: backgroundTitanState(time, line, concept), index: conceptIndex };
+      }
+    }
     for (var titanIndex = 0; titanIndex < backgroundTitans.length; titanIndex += 1) {
       var encounter = backgroundTitans[titanIndex];
       var state = backgroundTitanState(time, line, encounter);
@@ -3159,46 +3510,175 @@
     return null;
   }
 
+  function backgroundTitanArmPoint(active, amount, time) {
+    var state = active.state;
+    var direction = active.encounter.direction;
+    var along = (amount * 2 - 1) * direction;
+    var tipFreedom = Math.pow(amount, 3.2);
+    var greetingWave = Math.sin(state.progress * Math.PI * 2.15 + active.encounter.phase);
+    var greetingLift = Math.cos(state.progress * Math.PI * 2.45 + active.encounter.phase);
+    return {
+      x: state.x + along * state.radiusX + Math.sin(amount * Math.PI) * direction * state.radiusX * 0.08 +
+        greetingWave * direction * state.radiusX * 0.14 * tipFreedom,
+      y: state.y - Math.sin(amount * Math.PI) * state.radiusY * 1.18 +
+        Math.sin(amount * Math.PI * 2.7 + time * 0.014 + active.encounter.phase) * state.radiusY * 0.17 * amount +
+        direction * along * state.radiusY * 0.08 + greetingLift * state.radiusY * 0.52 * tipFreedom,
+      thickness: lerp(state.radiusY * 0.46, 5, amount) + state.approach * Math.pow(amount, 4) * 7
+    };
+  }
+
+  function backgroundTitanContains(active, x, y, time) {
+    if (active.encounter.type === "trenchGaze") {
+      var eyeX = (x - active.state.x) / active.state.radiusX;
+      if (Math.abs(eyeX) > 1) return false;
+      var lid = Math.pow(Math.max(0, 1 - eyeX * eyeX), 0.7) * active.state.radiusY * 0.56;
+      return Math.abs(y - active.state.y) <= lid + 5;
+    }
+    if (active.encounter.type !== "worldArm") {
+      var conceptX = (x - active.state.x) / active.state.radiusX;
+      var conceptY = (y - active.state.y) / active.state.radiusY;
+      return conceptX * conceptX + conceptY * conceptY <= 1.15;
+    }
+    var prior = backgroundTitanArmPoint(active, 0, time);
+    for (var segment = 1; segment <= 44; segment += 1) {
+      var amount = segment / 44;
+      var point = backgroundTitanArmPoint(active, amount, time);
+      if (pointToSegmentDistance(x, y, prior.x, prior.y, point.x, point.y) <= Math.max(prior.thickness, point.thickness)) {
+        return true;
+      }
+      prior = point;
+    }
+    return false;
+  }
+
   function drawBackgroundTitans(time, palette, line) {
     var active = activeBackgroundTitan(time, line);
     if (!active) return;
     var encounter = active.encounter;
     var state = active.state;
-    var x = state.x;
-    var y = state.y;
-    var radiusX = state.radiusX;
-    var radiusY = state.radiusY;
+    var conceptPreview = !!backgroundTitanPreview;
+    var titanDark = conceptPreview ? palette.steelDark : palette.abyss;
+    var titanMid = conceptPreview ? palette.steel : palette.creature;
+    var titanEdge = conceptPreview ? palette.bubble : palette.steelDark;
     ctx.save();
-    ctx.globalAlpha = encounter.type === "veilback" ? 0.075 : 0.09;
-    ctx.fillStyle = palette.abyss;
-    for (var bodyX = -Math.round(radiusX); bodyX <= Math.round(radiusX); bodyX += 1) {
-      var u = bodyX / radiusX;
-      var envelope;
-      if (encounter.type === "veilback") {
-        envelope = Math.pow(Math.max(0, 1 - Math.abs(u)), 0.42);
-        envelope *= 0.52 + Math.sin((u + 1) * Math.PI) * 0.48;
-      } else {
-        envelope = Math.sqrt(Math.max(0, 1 - u * u));
-        envelope *= 0.74 + Math.exp(-Math.pow((u - 0.28) * 2.2, 2)) * 0.26;
+    if (encounter.type === "trenchGaze") {
+      var eyeRadiusX = state.radiusX;
+      var eyeRadiusY = state.radiusY;
+      ctx.globalAlpha = 0.25;
+      for (var eyeColumn = -Math.round(eyeRadiusX); eyeColumn <= Math.round(eyeRadiusX); eyeColumn += 1) {
+        var eyeU = eyeColumn / eyeRadiusX;
+        var eyeEnvelope = Math.pow(Math.max(0, 1 - eyeU * eyeU), 0.7);
+        var lidMotion = Math.sin(time * 0.011 + encounter.phase) * 1.2;
+        var halfEye = Math.max(0, Math.round(eyeRadiusY * 0.56 * eyeEnvelope + lidMotion));
+        if (Math.abs(eyeU) < 0.93) {
+          pixelRect(state.x + eyeColumn, state.y - halfEye, 1, 1, titanEdge);
+          if (eyeU < -0.18 || eyeU > 0.38) {
+            pixelRect(state.x + eyeColumn, state.y + halfEye, 1, 1, titanEdge);
+          }
+        }
       }
-      var slowEdge = Math.sin(time * 0.027 + encounter.phase + u * 5.2) * 2.2 * envelope;
-      var halfHeight = Math.max(0, Math.round(radiusY * envelope));
-      var center = y - Math.round(radiusY * 0.12 * envelope) + slowEdge;
-      ctx.fillRect(Math.round(x + bodyX), Math.round(center - halfHeight), 1, Math.max(1, halfHeight * 2));
-    }
-    ctx.globalAlpha = 0.1;
-    var seamCount = encounter.type === "veilback" ? 5 : 8;
-    for (var seam = 1; seam < seamCount; seam += 1) {
-      var seamAmount = seam / seamCount;
-      var seamX = x - radiusX * 0.62 + radiusX * 1.24 * seamAmount;
-      var seamHeight = radiusY * (0.34 + Math.sin(seamAmount * Math.PI) * 0.46);
-      pixelLine(seamX, y - seamHeight, seamX + Math.sin(time * 0.02 + seam) * 3, y + seamHeight, palette.waterDeep, 2);
-    }
-    ctx.globalAlpha = 0.09;
-    for (var glint = 0; glint < 26; glint += 1) {
-      var glintX = x + (hash(active.index * 701 + glint * 31.7) - 0.5) * radiusX * 1.35;
-      var glintY = y + (hash(active.index * 919 + glint * 17.1) - 0.5) * radiusY * 0.9;
-      pixelRect(glintX, glintY, 1, 1, glint % 7 === 0 ? palette.bubble : palette.steelDark);
+      var irisRadius = Math.max(17, Math.round(eyeRadiusY * 0.48));
+      ctx.globalAlpha = 0.28;
+      drawPixelDisc(state.x + encounter.direction * eyeRadiusX * 0.08, state.y, irisRadius, palette.waterTop);
+      ctx.globalAlpha = 0.22;
+      var pupilX = state.x + encounter.direction * eyeRadiusX * 0.08;
+      drawPixelDisc(pupilX, state.y, Math.max(7, Math.round(irisRadius * 0.38)), palette.abyss);
+      pixelLine(pupilX, state.y - irisRadius * 0.36, pupilX, state.y + irisRadius * 0.36, palette.abyss, Math.max(3, Math.round(irisRadius * 0.24)));
+      ctx.globalAlpha = 0.08;
+      pixelRect(state.x + encounter.direction * eyeRadiusX * 0.04, state.y - irisRadius * 0.28, 2, 1, palette.bubble);
+      ctx.globalAlpha = 0.23;
+      var browY = state.y - eyeRadiusY * 0.62;
+      pixelLine(state.x - eyeRadiusX * 0.78, browY + 8, state.x - eyeRadiusX * 0.18, browY - 5, titanDark, 4);
+      pixelLine(state.x - eyeRadiusX * 0.18, browY - 5, state.x + eyeRadiusX * 0.7, browY + 3, titanDark, 5);
+      for (var browTendril = 0; browTendril < 3; browTendril += 1) {
+        var browRootX = state.x + eyeRadiusX * (0.24 + browTendril * 0.16);
+        var priorBrowX = browRootX;
+        var priorBrowY = browY + 2;
+        for (var browStep = 1; browStep <= 7; browStep += 1) {
+          var browAmount = browStep / 7;
+          var nextBrowX = browRootX + encounter.direction * Math.sin(browAmount * 3 + time * 0.025 + browTendril) * 8 * browAmount;
+          var nextBrowY = browY + 3 + browAmount * eyeRadiusY * (0.7 + browTendril * 0.18);
+          pixelLine(priorBrowX, priorBrowY, nextBrowX, nextBrowY, titanMid, Math.max(1, 3 - Math.floor(browAmount * 2)));
+          priorBrowX = nextBrowX;
+          priorBrowY = nextBrowY;
+        }
+      }
+    } else if (encounter.type === "crownTendrils") {
+      ctx.globalAlpha = conceptPreview ? 0.32 : 0.14;
+      for (var crownLobe = -3; crownLobe <= 3; crownLobe += 1) {
+        var lobeX = state.x + crownLobe * state.radiusX * 0.16;
+        var lobeY = state.y - state.radiusY * (0.34 + (3 - Math.abs(crownLobe)) * 0.08);
+        var lobeRadius = state.radiusY * (0.23 + (3 - Math.abs(crownLobe)) * 0.025);
+        drawPixelDisc(lobeX, lobeY, lobeRadius, crownLobe % 2 ? titanMid : titanDark);
+      }
+      for (var crownArm = 0; crownArm < 7; crownArm += 1) {
+        var armRootX = state.x + (crownArm - 3) * state.radiusX * 0.13;
+        var armRootY = state.y - state.radiusY * 0.24;
+        var priorCrownX = armRootX;
+        var priorCrownY = armRootY;
+        for (var crownStep = 1; crownStep <= 18; crownStep += 1) {
+          var crownAmount = crownStep / 18;
+          var crownFan = (crownArm - 3) * state.radiusX * 0.055 * crownAmount;
+          var nextCrownX = armRootX + crownFan + Math.sin(time * 0.018 + crownArm * 0.9 + crownAmount * 4.2) * state.radiusX * 0.045 * crownAmount;
+          var nextCrownY = armRootY + crownAmount * state.radiusY * (1.05 + Math.abs(crownArm - 3) * 0.08);
+          var crownRadius = Math.max(1, Math.round((1 - crownAmount * 0.78) * state.radiusY * 0.075));
+          ctx.globalAlpha = (0.085 + (1 - crownAmount) * 0.035) * (conceptPreview ? 2.2 : 1);
+          drawPixelDisc(nextCrownX, nextCrownY, crownRadius, crownArm % 2 ? titanMid : titanDark);
+          ctx.globalAlpha = conceptPreview ? 0.3 : 0.14;
+          pixelRect(nextCrownX + (crownArm % 2 ? 1 : -1) * crownRadius * 0.45, nextCrownY, 1, 1, titanEdge);
+          priorCrownX = nextCrownX;
+          priorCrownY = nextCrownY;
+        }
+      }
+      ctx.globalAlpha = conceptPreview ? 0.32 : 0.15;
+      for (var crownEye = -1; crownEye <= 1; crownEye += 1) {
+        drawPixelDisc(state.x + crownEye * state.radiusX * 0.12, state.y - state.radiusY * 0.38, 3 + (crownEye === 0 ? 2 : 0), palette.waterTop);
+      }
+    } else if (encounter.type === "cathedralGill") {
+      ctx.globalAlpha = 0.15;
+      var flankTilt = encounter.direction * state.radiusY * 0.26;
+      for (var gill = 0; gill < 7; gill += 1) {
+        var gillAmount = gill / 6;
+        var gillX = state.x + lerp(-state.radiusX * 0.72, state.radiusX * 0.72, gillAmount);
+        var gillCenterY = state.y - lerp(flankTilt, -flankTilt, gillAmount);
+        var gillHeight = state.radiusY * (0.42 + Math.sin(gillAmount * Math.PI) * 0.42);
+        for (var gillStep = 0; gillStep <= 18; gillStep += 1) {
+          var gillProgress = gillStep / 18;
+          var nextGillX = gillX + Math.sin(gillProgress * Math.PI) * state.radiusX * 0.08 * encounter.direction;
+          var nextGillY = lerp(gillCenterY - gillHeight, gillCenterY + gillHeight, gillProgress);
+          ctx.globalAlpha = 0.14 + Math.sin(gillProgress * Math.PI) * 0.06;
+          drawPixelDisc(nextGillX, nextGillY, Math.max(1, Math.round(Math.sin(gillProgress * Math.PI) * state.radiusY * 0.035 + 1)), titanEdge);
+        }
+      }
+      ctx.globalAlpha = 0.18;
+      pixelLine(state.x - state.radiusX * 0.78, state.y + flankTilt, state.x + state.radiusX * 0.78, state.y - flankTilt, titanMid, 2);
+    } else {
+      var prior = backgroundTitanArmPoint(active, 0, time);
+      for (var armSegment = 1; armSegment <= 72; armSegment += 1) {
+        var armAmount = armSegment / 72;
+        var armPoint = backgroundTitanArmPoint(active, armAmount, time);
+        var armThickness = Math.max(2, Math.round(armPoint.thickness));
+        ctx.globalAlpha = (0.07 + (1 - armAmount) * 0.035) * (conceptPreview ? 1.65 : 1) * state.fade;
+        pixelLine(prior.x, prior.y, armPoint.x, armPoint.y, titanDark, Math.max(3, Math.round(armThickness * 1.45)));
+        ctx.globalAlpha = 0.055 * (conceptPreview ? 1.8 : 1) * state.fade;
+        pixelLine(prior.x, prior.y - armThickness * 0.2, armPoint.x, armPoint.y - armThickness * 0.2, titanMid, Math.max(1, armThickness));
+        if (armSegment % 8 === 0 && armAmount > 0.16) {
+          ctx.globalAlpha = 0.07 * state.fade;
+          drawPixelDisc(armPoint.x, armPoint.y + armThickness * 0.55, Math.max(2, Math.round(armThickness * 0.18)), titanEdge);
+        }
+        if (armSegment % 10 === 0 && armAmount > 0.12 && armAmount < 0.94) {
+          ctx.globalAlpha = 0.055 * state.fade;
+          pixelLine(
+            armPoint.x - 1,
+            armPoint.y - armThickness * 0.42,
+            armPoint.x + 1,
+            armPoint.y + armThickness * 0.34,
+            titanEdge,
+            1
+          );
+        }
+        prior = armPoint;
+      }
     }
     ctx.restore();
   }
@@ -3219,6 +3699,9 @@
   }
 
   function activeColossalEncounter(time, line) {
+    // The world-arm encounter owns the deep background while it is present;
+    // overlapping silhouettes collapse the sense of extraordinary scale.
+    if (activeBackgroundTitan(time, line)) return null;
     for (var encounterIndex = 0; encounterIndex < colossalEncounters.length; encounterIndex += 1) {
       var encounter = colossalEncounters[encounterIndex];
       var state = colossalState(time, line, encounter);
@@ -3244,6 +3727,14 @@
       var anchor = colossalTendrilAnchor(state, encounter, tendril, count);
       var pointCount = 10 + (tendril % 4) * 2;
       var segmentLength = state.scale * (0.43 + (tendril % 3) * 0.045);
+      if (MotionEngine) {
+        var softChain = MotionEngine.createChain(
+          anchor.x, anchor.y, pointCount - 1, segmentLength, encounterIndex * 2.7 + tendril * 1.31
+        );
+        softChain.phase = encounterIndex * 2.7 + tendril * 1.31;
+        encounter.tendrils.push(softChain);
+        continue;
+      }
       var chain = {
         points: [],
         previous: [],
@@ -3272,8 +3763,10 @@
       var state = activeColossal.state;
       if (!encounter.tendrils.length) initializeColossalTendrils(encounter, state, encounterIndex);
       var firstAnchor = colossalTendrilAnchor(state, encounter, 0, encounter.tendrils.length);
-      var root = encounter.tendrils[0].points[0];
-      if (Math.abs(root.x - firstAnchor.x) + Math.abs(root.y - firstAnchor.y) > state.scale * 18) {
+      var firstChain = encounter.tendrils[0];
+      var rootX = firstChain.points instanceof Float32Array ? firstChain.points[0] : firstChain.points[0].x;
+      var rootY = firstChain.points instanceof Float32Array ? firstChain.points[1] : firstChain.points[0].y;
+      if (Math.abs(rootX - firstAnchor.x) + Math.abs(rootY - firstAnchor.y) > state.scale * 18) {
         initializeColossalTendrils(encounter, state, encounterIndex);
       }
 
@@ -3281,6 +3774,18 @@
         var chain = encounter.tendrils[tendril];
         var anchor = colossalTendrilAnchor(state, encounter, tendril, encounter.tendrils.length);
         chain.segmentLength = state.scale * (0.43 + (tendril % 3) * 0.045);
+        if (MotionEngine && chain.points instanceof Float32Array) {
+          MotionEngine.updateChain(chain, dt, anchor.x, anchor.y, sampleFluid, {
+            drag: 0.982,
+            gravity: state.scale * 0.0007,
+            flowScale: 0.31,
+            flutter: state.scale * 0.0055,
+            time: time,
+            seed: chain.phase,
+            iterations: 6
+          });
+          continue;
+        }
         chain.points[0].x = anchor.x;
         chain.points[0].y = anchor.y;
         chain.previous[0].x = anchor.x;
@@ -3329,6 +3834,20 @@
     ctx.globalAlpha = fade;
     for (var tendril = 0; tendril < encounter.tendrils.length; tendril += 1) {
       var chain = encounter.tendrils[tendril];
+      if (chain.points instanceof Float32Array) {
+        for (var softPoint = 1; softPoint <= chain.count; softPoint += 1) {
+          var softSlot = softPoint * 2;
+          pixelLine(
+            chain.points[softSlot - 2], chain.points[softSlot - 1],
+            chain.points[softSlot], chain.points[softSlot + 1],
+            tendrilColor, Math.max(1, Math.round(scale * 0.16))
+          );
+        }
+        ctx.globalAlpha = fade * 0.22;
+        pixelRect(chain.points[chain.count * 2], chain.points[chain.count * 2 + 1], 1, 1, tendrilColor);
+        ctx.globalAlpha = fade;
+        continue;
+      }
       for (var point = 1; point < chain.points.length; point += 1) {
         pixelLine(
           chain.points[point - 1].x,
@@ -3584,6 +4103,10 @@
       for (var x = (y % 5); x < width; x += 3) {
         if (!AmbientLife.causticPixelVisible(x, y, time, geometry.line, environment.storm, cameraX, density)) continue;
         if (planktonVisibilityAt(x, y) < 0.32) continue;
+        if (materialField) {
+          var causticMaterial = materialField.sample(x, y, materialSample);
+          if (hash(x * 17.7 + y * 5.1) < causticMaterial.turbidity * 0.46) continue;
+        }
         pixelRect(x, y, hash(x * 3.1 + y * 7.7) > 0.74 ? 2 : 1, 1, palette.bubble);
       }
     }
@@ -3593,7 +4116,7 @@
   function drawRareEcology(time, palette, geometry, typeFilter) {
     if (!ecologyEvent || !ecologyEvent.active) return;
     if (typeFilter && ecologyEvent.type !== typeFilter) return;
-    var intensity = ecologyEvent.intensity;
+    var intensity = ecologyEvent.intensity * (directorState ? 0.46 + directorState.intensity * 0.54 : 1);
     var eventX = ecologyEvent.x * width;
     if (ecologyEvent.type === "jellyBloom") {
       var jellyCount = Math.floor((12 + width / 34) * intensity * visualDensity());
@@ -3669,8 +4192,9 @@
         var y = fluid.line + row * FLUID_CELL;
         var velocityX = fluid.u[index];
         var velocityY = fluid.v[index];
+        var evolvingMaterial = materialField ? materialField.sample(x, y, materialSample) : null;
         if (dye >= 0.035) {
-          ctx.globalAlpha = clamp(dye * 0.44, 0.06, 0.44);
+          ctx.globalAlpha = clamp(dye * 0.44 * (evolvingMaterial ? 0.82 + evolvingMaterial.shimmer * 0.28 : 1), 0.06, 0.44);
           var materialColor = velocityY < -0.08 ? palette.bubble : palette.timberLight;
           var pointCount = 1 + Math.floor(clamp(dye, 0, 1.3) * 5);
           for (var point = 0; point < pointCount; point += 1) {
@@ -3682,7 +4206,8 @@
         }
         if (
           plankton > 0.17 &&
-          hash(col * 19.1 + row * 31.7) < (plankton - 0.12) * 0.42 * planktonVisibilityAt(x, y)
+          hash(col * 19.1 + row * 31.7) < (plankton - 0.12) * 0.42 * planktonVisibilityAt(x, y) *
+            (evolvingMaterial ? 0.76 + evolvingMaterial.shimmer * 0.34 : 1)
         ) {
           ctx.globalAlpha = clamp(0.08 + plankton * 0.3, 0.08, 0.46);
           ctx.fillStyle = plankton > 0.48 ? palette.lamp : palette.plankton;
@@ -3703,6 +4228,15 @@
     result.pattern = colors[(variant + 1) % colors.length];
     result.dark = swimmer.kind === "seaGiant" ? palette.abyss : palette.steelDark;
     result.glow = traits && traits.glowPattern > 0 ? palette.lamp : colors[(variant + 2) % colors.length];
+    if (SceneEngine) {
+      var depthEnvironment = { storm: environment.storm, waterAmount: 1, glow: traits ? traits.glowStrength : 0 };
+      result.base = SceneEngine.colorAtDepth(result.base, swimmer, depthEnvironment, palette);
+      result.pattern = SceneEngine.colorAtDepth(result.pattern, swimmer, depthEnvironment, palette);
+      result.dark = SceneEngine.colorAtDepth(result.dark, swimmer, depthEnvironment, palette);
+      result.glow = SceneEngine.colorAtDepth(result.glow, swimmer, {
+        storm: environment.storm, waterAmount: 1, glow: 0.8
+      }, palette);
+    }
     return result;
   }
 
@@ -3713,6 +4247,26 @@
     if (marking === 2) return colors.dark;
     if (marking === 1) return colors.pattern;
     return colors.base;
+  }
+
+  function drawSoftChain(chain, color) {
+    if (!chain || !chain.points) return;
+    if (chain.points instanceof Float32Array) {
+      for (var point = 1; point <= chain.count; point += 1) {
+        var slot = point * 2;
+        pixelLine(
+          chain.points[slot - 2], chain.points[slot - 1],
+          chain.points[slot], chain.points[slot + 1], color, 1
+        );
+      }
+      return;
+    }
+    for (var index = 1; index < chain.points.length; index += 1) {
+      pixelLine(
+        chain.points[index - 1].x, chain.points[index - 1].y,
+        chain.points[index].x, chain.points[index].y, color, 1
+      );
+    }
   }
 
   function drawVariedSwimmer(swimmer, time, palette) {
@@ -3727,8 +4281,10 @@
     var movementDrive = clamp(speed / Math.max(0.55, swimmer.size * 1.1), 0, 1);
     var animationRate = clamp(swimmer.behaviorAnimationRate || 0.72, 0.3, MAX_CREATURE_ANIMATION_RATE) *
       lerp(0.52, 1, movementDrive);
-    if (swimmer.kind === "eel") animationRate *= 0.32;
-    var pose = CreatureVariation.poseAt(traits, time * animationRate, speed, variationPose);
+    if (swimmer.kind === "eel") animationRate *= 0.1;
+    var pose = MotionEngine && swimmer.motion
+      ? MotionEngine.poseFor(swimmer, motionPose)
+      : CreatureVariation.poseAt(traits, time * animationRate, speed, variationPose);
     var colors = swimmerPalette(swimmer, palette, traits, variationColors);
     var x = Math.round(swimmer.x);
     var y = Math.round(swimmer.y + pose.bob);
@@ -3748,14 +4304,7 @@
       }
       if (swimmer.tentacles && swimmer.tentacles.length) {
         for (var jellyLeg = 0; jellyLeg < swimmer.tentacles.length; jellyLeg += 1) {
-          var jellyChain = swimmer.tentacles[jellyLeg].points;
-          for (var jellyPointIndex = 1; jellyPointIndex < jellyChain.length; jellyPointIndex += 1) {
-            pixelLine(
-              jellyChain[jellyPointIndex - 1].x, jellyChain[jellyPointIndex - 1].y,
-              jellyChain[jellyPointIndex].x, jellyChain[jellyPointIndex].y,
-              colors.base, 1
-            );
-          }
+          drawSoftChain(swimmer.tentacles[jellyLeg], colors.base);
         }
       } else {
         for (var fallbackLeg = 0; fallbackLeg < traits.tentacleCount; fallbackLeg += 1) {
@@ -3778,14 +4327,7 @@
       }
       if (swimmer.tentacles && swimmer.tentacles.length) {
         for (var arm = 0; arm < swimmer.tentacles.length; arm += 1) {
-          var armChain = swimmer.tentacles[arm].points;
-          for (var armPointIndex = 1; armPointIndex < armChain.length; armPointIndex += 1) {
-            pixelLine(
-              armChain[armPointIndex - 1].x, armChain[armPointIndex - 1].y,
-              armChain[armPointIndex].x, armChain[armPointIndex].y,
-              colors.base, 1
-            );
-          }
+          drawSoftChain(swimmer.tentacles[arm], colors.base);
         }
       }
       pixelRect(x + facing * Math.max(1, mantleHalf - 1), y - 2, 1, 1, colors.glow);
@@ -3794,12 +4336,26 @@
 
     if (swimmer.kind === "eel") {
       var eelLength = Math.max(9, bodyLength + traits.tailLength);
+      if (pose.spine && pose.spine.length >= 6) {
+        for (var spineSegment = 1; spineSegment < pose.spine.length / 2; spineSegment += 1) {
+          var spineSlot = spineSegment * 2;
+          var spineAmount = spineSegment / (pose.spine.length / 2 - 1);
+          pixelLine(
+            pose.spine[spineSlot - 2], pose.spine[spineSlot - 1],
+            pose.spine[spineSlot], pose.spine[spineSlot + 1],
+            spineAmount < 0.62 ? colors.base : colors.pattern,
+            spineAmount < 0.42 ? 2 : 1
+          );
+        }
+        pixelRect(pose.spine[0], pose.spine[1] - 1, 1, 1, colors.glow);
+        return true;
+      }
       var eelPriorX = x + facing * Math.floor(eelLength * 0.45);
       var eelPriorY = y;
       for (var eelSegment = 0; eelSegment <= eelLength; eelSegment += 1) {
         var eelAmount = eelSegment / eelLength;
         var eelX = x + facing * Math.round(eelLength * (0.45 - eelAmount));
-        var eelWave = Math.sin(pose.phase - eelAmount * Math.PI * 2.2) * (0.4 + eelAmount * 1.7);
+        var eelWave = Math.sin(pose.phase - eelAmount * Math.PI * 2.2) * (0.25 + eelAmount * 1.15);
         var eelY = y + Math.round(eelWave);
         pixelLine(eelPriorX, eelPriorY, eelX, eelY, eelSegment < bodyLength * 0.62 ? colors.base : colors.pattern, eelAmount < 0.46 ? 2 : 1);
         eelPriorX = eelX;
@@ -3812,7 +4368,7 @@
 
     if (swimmer.kind === "ray") {
       var rayHalf = Math.max(4, Math.floor(bodyLength * 0.5));
-      var rayWing = Math.max(3, Math.round(traits.finSpan * 0.82));
+      var rayWing = Math.max(3, Math.round(traits.finSpan * (0.76 + Math.abs(pose.fin) * 0.18)));
       for (var rayX = -rayHalf; rayX <= rayHalf; rayX += 1) {
         var rayEnvelope = 1 - Math.abs(rayX) / Math.max(1, rayHalf);
         var rayHalfHeight = Math.max(1, Math.round(rayEnvelope * rayWing));
@@ -3834,15 +4390,17 @@
       for (var fishX = -fishHalf; fishX <= fishHalf; fishX += 1) {
         var fishEnvelope = Math.sqrt(Math.max(0, 1 - Math.pow(fishX / Math.max(1, fishHalf), 2)));
         var fishHalfHeight = Math.max(0, Math.floor(fishEnvelope * fishHeight));
+        var fishTravel = 1 - (fishX + fishHalf) / Math.max(1, fishHalf * 2);
+        var fishCenterY = Math.round(Math.sin(pose.phase - fishTravel * 4.2) * fishTravel * (0.15 + pose.drive * 0.55));
         for (var fishY = -fishHalfHeight; fishY <= fishHalfHeight; fishY += 1) {
           var fishStripe = fishX === 0 || fishX === -1;
-          pixelRect(x + facing * fishX, y + fishY, 1, 1, fishStripe ? colors.pattern : colors.base);
+          pixelRect(x + facing * fishX, y + fishCenterY + fishY, 1, 1, fishStripe ? colors.pattern : colors.base);
         }
       }
       var fishTailRoot = x - facing * fishHalf;
       var fishTailTip = fishTailRoot - facing * Math.max(2, traits.tailLength);
-      pixelLine(fishTailRoot, y, fishTailTip, y - Math.max(1, traits.tailSpan), colors.pattern, 1);
-      pixelLine(fishTailRoot, y, fishTailTip, y + Math.max(1, traits.tailSpan), colors.pattern, 1);
+      pixelLine(fishTailRoot, y, fishTailTip, y - Math.max(1, traits.tailSpan) + Math.round(pose.tail), colors.pattern, 1);
+      pixelLine(fishTailRoot, y, fishTailTip, y + Math.max(1, traits.tailSpan) + Math.round(pose.tail), colors.pattern, 1);
       pixelRect(x + facing * Math.max(1, fishHalf - 1), y - 1, 1, 1, colors.glow);
       return true;
     }
@@ -3855,14 +4413,16 @@
         var sharkTaper = sharkU < -0.3 ? clamp((sharkU + 1) / 0.7, 0.15, 1) : 1;
         var sharkEnvelope = Math.sqrt(Math.max(0, 1 - sharkU * sharkU)) * sharkTaper;
         var sharkHalfHeight = Math.max(0, Math.floor(sharkEnvelope * sharkHeight));
+        var sharkTravel = 1 - (sharkX + sharkHalf) / Math.max(1, sharkHalf * 2);
+        var sharkCenterY = Math.round(Math.sin(pose.phase - sharkTravel * 3.8) * sharkTravel * 0.65);
         for (var sharkY = -sharkHalfHeight; sharkY <= sharkHalfHeight; sharkY += 1) {
-          pixelRect(x + facing * sharkX, y + sharkY, 1, 1, sharkY === sharkHalfHeight ? colors.pattern : colors.base);
+          pixelRect(x + facing * sharkX, y + sharkCenterY + sharkY, 1, 1, sharkY === sharkHalfHeight ? colors.pattern : colors.base);
         }
       }
       var sharkTailRoot = x - facing * sharkHalf;
       var sharkTailTip = sharkTailRoot - facing * traits.tailLength;
-      pixelLine(sharkTailRoot, y, sharkTailTip, y - traits.tailSpan, colors.base, 2);
-      pixelLine(sharkTailRoot, y, sharkTailTip, y + traits.tailSpan, colors.base, 2);
+      pixelLine(sharkTailRoot, y, sharkTailTip, y - traits.tailSpan + Math.round(pose.tail), colors.base, 2);
+      pixelLine(sharkTailRoot, y, sharkTailTip, y + traits.tailSpan + Math.round(pose.tail), colors.base, 2);
       var sharkDorsalX = x - facing * 1;
       pixelLine(sharkDorsalX, y - 1, sharkDorsalX - facing * 2, y - traits.dorsalHeight, colors.base, 1);
       pixelRect(x + facing * Math.max(2, sharkHalf - 2), y - 1, 1, 1, colors.glow);
@@ -3914,9 +4474,9 @@
   }
 
   function drawSwimmers(time, palette, kindFilter) {
-    for (var i = 0; i < swimmers.length; i += 1) {
-      var swimmer = swimmers[i];
-      if (kindFilter && swimmer.kind !== kindFilter) continue;
+    var orderedSwimmers = swimmersInDrawOrder(kindFilter);
+    for (var i = 0; i < orderedSwimmers.length; i += 1) {
+      var swimmer = orderedSwimmers[i];
       var glow = (swimmer.behaviorGlowBoost || 0) + (swimmer.variation ? swimmer.variation.glowStrength * 0.18 : 0);
       var visibility = 0.76;
       if (AmbientLife) {
@@ -3924,7 +4484,17 @@
           swimmer.y, waterlineY(), height, environment.storm, glow, depthSample
         ).visibility * (swimmer.eventVisibilityScale || 1);
       }
-      ctx.globalAlpha = clamp(visibility, 0.18, 0.9);
+      var visualDepth = Number.isFinite(swimmer.visualDepth) ? swimmer.visualDepth : swimmer.depthTarget;
+      var planeVisibility = lerp(1, 0.56, clamp(visualDepth, 0, 1));
+      if (SceneEngine) {
+        var composed = SceneEngine.styleFor(swimmer, {
+          storm: environment.storm,
+          waterAmount: clamp((swimmer.y - waterlineY()) / Math.max(1, height - waterlineY()), 0, 1),
+          glow: glow
+        }, palette, sceneStyle);
+        planeVisibility = composed.alpha;
+      }
+      ctx.globalAlpha = clamp(visibility * planeVisibility, 0.1, 0.92);
       if (!drawVariedSwimmer(swimmer, time, palette)) {
         drawPixelMask(
           Math.floor(swimmer.x) - 2,
@@ -4028,44 +4598,27 @@
   }
 
   function drawSurface(time, palette, line, raftX) {
-    var foamMasks = [
-      [" 11 ", "1  1"],
-      ["1 1", " 2 "],
-      [" 1 ", "1 1"]
-    ];
     var densityAmount = clamp((visualDensity() - 0.3) / 1.5, 0, 1);
-    var crestSpacing = Math.round(lerp(14, 5, densityAmount));
-    var crestThreshold = lerp(0.64, 0.34, densityAmount);
-    var lastCrest = -20;
     for (var x = 1; x < width - 1; x += 1) {
       var centerY = surfaceY(x, time, line, raftX);
       var top = Math.round(centerY);
       var leftY = surfaceY(x - 2, time, line, raftX);
       var rightY = surfaceY(x + 2, time, line, raftX);
-      var slope = rightY - leftY;
       var curvature = leftY + rightY - centerY * 2;
       var worldX = Math.round(screenToWorldX(x));
 
-      var isCrest = top <= leftY && top <= rightY && curvature > 0.08;
-      var energetic = Math.abs(slope) > 0.48 || environment.storm > 0.42;
-      if (
-        x - lastCrest > crestSpacing &&
-        (isCrest || energetic) &&
-        hash(worldX * 0.73) > crestThreshold
-      ) {
-        var maskIndex = Math.abs(worldX) % foamMasks.length;
-        drawPixelMask(
-          x - 2,
-          top - 1,
-          foamMasks[maskIndex],
-          { "1": palette.foam, "2": palette.bubble },
-          slope > 0
-        );
-        lastCrest = x;
+      // The wave edge is one continuous material, not a second layer of
+      // collectible-looking white sprites. Dark and mid-violet pixels pick out
+      // the crest directly from the water profile.
+      ctx.globalAlpha = 0.42 + densityAmount * 0.18;
+      pixelRect(x, top, 1, 1, curvature > 0.08 ? palette.waterTop : palette.water);
+      if (curvature > 0.16 && hash(worldX * 0.73) > 0.64) {
+        ctx.globalAlpha = 0.28 + densityAmount * 0.12;
+        pixelRect(x, top - 1, 1, 1, palette.bubble);
       }
     }
 
-    ctx.globalAlpha = 0.62;
+    ctx.globalAlpha = 0.5;
     for (var i = 0; i < ripples.length; i += 1) {
       var ripple = ripples[i];
       var radius = ripple.age * 8;
@@ -4076,8 +4629,8 @@
         drawPixelMask(
           rippleX - 2,
           surfaceY(rippleX, time, line, raftX),
-          [" 1 1 ", "1 2 1"],
-          { "1": palette.bubble, "2": palette.foam },
+          [" 1 1 ", "1   1"],
+          { "1": palette.bubble },
           sides[side] < 0
         );
       }
@@ -4253,6 +4806,30 @@
       { "1": palette.steelDark, "2": palette.timberLight },
       false
     );
+
+    // Repairs accumulated by different crews break up the otherwise modular
+    // facade: mismatched plating, a crooked conduit, vents, and old drain marks.
+    drawPixelMask(
+      blockLeft + Math.floor(mainBlockWidth * 0.17),
+      deck - 22,
+      ["11111111", "12222221", "12111121", "12222221", "11111111"],
+      { "1": palette.steelDark, "2": palette.steel },
+      false
+    );
+    var conduitX = blockLeft + Math.floor(mainBlockWidth * 0.43);
+    pixelLine(conduitX, deck - 35, conduitX, deck - 25, palette.timberLight, 1);
+    pixelLine(conduitX, deck - 25, conduitX + 5, deck - 22, palette.timberLight, 1);
+    pixelLine(conduitX + 5, deck - 22, conduitX + 5, deck - 8, palette.steel, 1);
+    for (var vent = 0; vent < 3; vent += 1) {
+      pixelRect(upperBlockLeft + 4 + vent * 4, deck - 48 + vent % 2, 2, 3, palette.steelDark);
+      pixelRect(upperBlockLeft + 4 + vent * 4, deck - 48 + vent % 2, 2, 1, palette.timberLight);
+    }
+    ctx.globalAlpha = 0.32;
+    for (var stain = 0; stain < 5; stain += 1) {
+      var stainX = blockLeft + 11 + stain * 23;
+      pixelLine(stainX, deck - 3, stainX + (stain % 2), deck + 8 + stain % 4, palette.planetDark, 1);
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawPlatform(time, palette, geometry) {
@@ -4264,7 +4841,11 @@
     var span = right - left;
 
     moduleSpan(left, deck, span, 9, palette.timber, palette.timberLight, palette.steelDark, 211, 10);
-    moduleSpan(left - 3, deck - 2, span + 3, 3, palette.timberLight, palette.foam, palette.timber, 223, 8);
+    var deckGapX = left + Math.floor(span * 0.19);
+    moduleSpan(left - 3, deck - 2, deckGapX - left - 3, 3, palette.timberLight, palette.foam, palette.timber, 223, 8);
+    moduleSpan(deckGapX + 8, deck - 2, right - deckGapX - 5, 3, palette.timberLight, palette.foam, palette.timber, 227, 8);
+    pixelRect(deckGapX - 1, deck - 1, 2, 1, palette.steelDark);
+    pixelRect(deckGapX + 7, deck, 2, 1, palette.timber);
 
     for (var p = 0; p < geometry.pylons.length; p += 1) {
       var px = Math.floor(geometry.pylons[p]);
@@ -4309,7 +4890,17 @@
           structure.stress > 0.72 &&
           hash(wx * 0.37 + floor * 13 + Math.floor(time / 6)) < (structure.stress - 0.72) * 0.18
         ) lit = false;
-        drawBuildingWindow(wx, wy, lit, palette, wx + floor * 31);
+        if (roomIndex % 13 === 6) {
+          drawPixelMask(
+            wx - 1, wy - 1,
+            ["111111111", "122222221", "121111121", "122222221", "111111111"],
+            { "1": palette.steelDark, "2": floor % 2 ? palette.timber : palette.steel },
+            false
+          );
+          pixelLine(wx + 1, wy + 1, wx + 5, wy + 3, palette.timberLight, 1);
+        } else {
+          drawBuildingWindow(wx, wy, lit, palette, wx + floor * 31);
+        }
         roomIndex += 1;
       }
     }
@@ -4322,10 +4913,12 @@
     pixelRect(towerX + 2, deck - 96, 2, 2, palette.lamp);
 
     var padY = deck - 48;
-    moduleSpan(
-      left + 6, padY, Math.floor(span * 0.24), 3,
-      palette.steel, palette.timberLight, palette.steelDark, 293, 8
-    );
+    var padWidth = Math.floor(span * 0.24);
+    var missingBeamX = left + 6 + Math.floor(padWidth * 0.58);
+    moduleSpan(left + 6, padY, missingBeamX - left - 6, 3, palette.steel, palette.timberLight, palette.steelDark, 293, 8);
+    moduleSpan(missingBeamX + 9, padY, left + 6 + padWidth - missingBeamX - 9, 3, palette.steel, palette.timberLight, palette.steelDark, 297, 8);
+    pixelLine(missingBeamX - 1, padY + 1, missingBeamX + 2, padY + 6, palette.steelDark, 1);
+    pixelRect(missingBeamX + 8, padY + 1, 2, 1, palette.timberLight);
     pixelLine(left + 10, padY + 3, left + 10, deck - 1, palette.steelDark, 3);
     moduleSpan(
       left + Math.floor(span * 0.79), deck - 68, Math.floor(span * 0.2), 3,
@@ -4341,7 +4934,6 @@
     var residentPose = {};
     for (var i = 0; i < platformPeople; i += 1) {
       platformResidentPose(i, time, geometry, residentPose);
-      drawResidentFlashlight(residentPose, palette, geometry, time);
       drawPerson(
         residentPose.x,
         residentPose.deck,
@@ -4351,6 +4943,10 @@
         residentPose.role,
         residentPose.action
       );
+      if (residentPose.action === "flashlight") {
+        var flashlightFacing = residentPose.direction || -1;
+        pixelRect(residentPose.x + flashlightFacing * 4, residentPose.deck - 4, 2, 1, palette.lamp);
+      }
     }
     if (structure.integrity < 0.985) {
       ctx.fillStyle = palette.lamp;
@@ -4368,10 +4964,16 @@
     raft.vx += (targetVelocity - raft.vx) * dt * 0.32;
     raft.x += raft.vx * dt;
 
-    var targetY = surfaceY(raft.x + 14, time, line, raft.x) - 4;
-    var lift = (targetY - raft.y) * 5.2 - raft.vy * 3.1;
-    raft.vy += lift * dt;
-    raft.y += raft.vy * dt;
+    if (worldPhysics) {
+      worldPhysics.surfaceContact(raft, dt, function (sampleX) {
+        return surfaceY(sampleX, time, line, raft.x);
+      }, { sampleOffset: 14, targetOffset: -4, stiffness: 5.2, damping: 3.1 });
+    } else {
+      var targetY = surfaceY(raft.x + 14, time, line, raft.x) - 4;
+      var lift = (targetY - raft.y) * 5.2 - raft.vy * 3.1;
+      raft.vy += lift * dt;
+      raft.y += raft.vy * dt;
+    }
 
     var slope = (
       surfaceY(raft.x + 27, time, line, raft.x) -
@@ -4575,6 +5177,12 @@
     var geometry = platformGeometry();
     if (ecology) ecologyEvent = ecologyPreviewEvent || ecology.updateEvents(time);
     updateEnvironment(dt, time);
+    if (sceneDirector) {
+      directorState = sceneDirector.update(time, {
+        storm: environment.storm,
+        colossalVisible: !!activeColossalEncounter(time, geometry.line)
+      });
+    }
     updateSurface(dt, time);
     updateRain(dt, time, geometry);
     updateRaft(dt, time, geometry.line);
@@ -4617,17 +5225,22 @@
     }
 
     updateFluid(dt, time, geometry, actors);
+    if (materialField) materialField.update(time, environment.storm, sampleFluid);
     updateStructure(dt, geometry);
     updateMooring(dt, time, geometry);
     updateSediment(dt, geometry);
     updateSwimmers(dt, time, geometry, actors);
     updateParticles(dt, time, geometry, actors);
+    updatePlatformFlashlight(time, dt, geometry);
+    updateCreatureLightFields(time, geometry);
     drawSky(time, palette, geometry.line);
     drawWeather(time, palette, geometry.line);
     drawRainDrops(palette);
     drawPortal(time, palette, geometry.line);
     drawWater(time, palette, geometry.line, raft.x);
     drawCaustics(time, palette, geometry);
+    drawPlatformFlashlight();
+    drawCreatureLightFields();
     drawBackgroundTitans(time, palette, geometry.line);
     drawRareEcology(time, palette, geometry);
     drawColossalEncounters(time, palette, geometry.line);
@@ -4639,6 +5252,7 @@
     drawMooringUnder(palette);
     drawRaftUnder(palette);
     drawSurface(time, palette, geometry.line, raft.x);
+    drawPlatformFlashlightSurfaceGlints();
     drawRainSplashes(time, palette, geometry);
     drawRaftWake(time, palette, geometry.line);
     drawMooringAbove(palette);
@@ -4678,6 +5292,7 @@
     canvas.style.height = height * ART_PIXEL + "px";
     ctx.imageSmoothingEnabled = false;
     buildWaterTexture(PALETTES[mode], newLine);
+    if (materialField) materialField.resize(width, height);
     createSurface();
     if (oldSurface) {
       for (var surfaceCol = 0; surfaceCol < surface.cols; surfaceCol += 1) {
@@ -4761,6 +5376,15 @@
         swimmers[swimmer].y += yShift;
         if (swimmers[swimmer].tentacles) {
           swimmers[swimmer].tentacles.forEach(function (chain) {
+            if (chain.points instanceof Float32Array) {
+              for (var chainSlot = 0; chainSlot < chain.points.length; chainSlot += 2) {
+                chain.points[chainSlot] += xShift;
+                chain.points[chainSlot + 1] += yShift;
+                chain.previous[chainSlot] += xShift;
+                chain.previous[chainSlot + 1] += yShift;
+              }
+              return;
+            }
             chain.points.forEach(function (point) {
               point.x += xShift;
               point.y += yShift;
@@ -4899,15 +5523,25 @@
     }
   }
 
-  function showInterface() {
+  function markInterfaceInstant() {
+    shell.classList.add("ui-instant");
+    if (instantUiFrame) window.cancelAnimationFrame(instantUiFrame);
+    instantUiFrame = window.requestAnimationFrame(function () {
+      shell.classList.remove("ui-instant");
+      instantUiFrame = 0;
+    });
+  }
+
+  function showInterface(instant) {
     if (screensaverMode) {
       shell.classList.add("ui-hidden");
       return;
     }
+    if (instant === true) markInterfaceInstant();
     shell.classList.remove("ui-hidden");
     window.clearTimeout(uiTimer);
     uiTimer = window.setTimeout(function () {
-      if (!glossaryOpen && !inspectHeld) shell.classList.add("ui-hidden");
+      if (!settingsOpen && !glossaryOpen && !inspectHeld) shell.classList.add("ui-hidden");
     }, 5500);
   }
 
@@ -4926,6 +5560,21 @@
     pointer.clientX = event.clientX;
     pointer.clientY = event.clientY;
     pointer.inside = true;
+  }
+
+  function triggerPlatformFlashlight(position) {
+    var geometry = platformGeometry();
+    var pose = platformResidentPose(0, simulationTime, geometry, {});
+    var residentX = pose.x + Math.round(structure.sway);
+    var residentDeck = pose.deck + Math.round(structure.sag);
+    if (
+      Math.abs(position.x - residentX) > 6 ||
+      position.y < residentDeck - 10 ||
+      position.y > residentDeck + 4
+    ) return false;
+    forcedFlashlightStartedAt = simulationTime;
+    forcedFlashlightUntil = simulationTime + 10.5;
+    return true;
   }
 
   function stirWater(event, firstContact) {
@@ -4990,6 +5639,17 @@
       setGlossaryOpen(!glossaryOpen);
     });
   }
+  if (settingsToggle) {
+    settingsToggle.addEventListener("click", function () {
+      setSettingsOpen(!settingsOpen, false);
+    });
+  }
+  if (settingsClose) {
+    settingsClose.addEventListener("click", function () {
+      setSettingsOpen(false, false);
+      if (settingsToggle) settingsToggle.focus({ preventScroll: true });
+    });
+  }
   if (welcomeOpen) {
     welcomeOpen.addEventListener("click", function () {
       setWelcomeOpen(true, false);
@@ -5038,8 +5698,10 @@
   window.addEventListener("keydown", function (event) {
     if (screensaverMode) return;
     var key = event.key.toUpperCase();
-    var interactive = event.target && event.target.closest &&
-      event.target.closest("input, textarea, select, button, [contenteditable='true'], [role='button']");
+    var typing = event.target && event.target.closest &&
+      event.target.closest("input, textarea, select, [contenteditable='true']");
+    var interactive = typing || event.target && event.target.closest &&
+      event.target.closest("button, [role='button']");
     if (welcome && !welcome.hidden && key === "TAB") {
       event.preventDefault();
       if (welcomeEnter) welcomeEnter.focus({ preventScroll: true });
@@ -5048,30 +5710,42 @@
     if (event.key === "Control" && !interactive) {
       inspectHeld = true;
       shell.classList.add("is-inspecting");
-      showInterface();
+      showInterface(true);
     }
-    if (key === "G" && !interactive && !event.repeat) {
-      setGlossaryOpen(!glossaryOpen);
+    if (key === "G" && !typing && (!welcome || welcome.hidden) && !event.repeat) {
+      setGlossaryOpen(!glossaryOpen, true);
+      event.preventDefault();
+    }
+    if (key === "T" && !typing && (!welcome || welcome.hidden) && !event.repeat) {
+      setSettingsOpen(!settingsOpen, true);
+      event.preventDefault();
+    }
+    if (key === "A" && !typing && (!welcome || welcome.hidden) && !event.repeat) {
+      setWelcomeOpen(true, false);
       event.preventDefault();
     }
     if (key === "ESCAPE" && welcome && !welcome.hidden) {
       setWelcomeOpen(false, true);
       event.preventDefault();
     } else if (key === "ESCAPE" && glossaryOpen) {
-      setGlossaryOpen(false);
+      setGlossaryOpen(false, true);
       if (glossaryToggle) glossaryToggle.focus({ preventScroll: true });
+    } else if (key === "ESCAPE" && settingsOpen) {
+      setSettingsOpen(false, true);
+      if (settingsToggle) settingsToggle.focus({ preventScroll: true });
     }
-    if (!interactive && (key === "A" || key === "B" || key === "C")) setMode(key);
     if (!interactive && key === "F") document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
-    if (!interactive && key === "H") shell.classList.toggle("ui-hidden");
-    if (!interactive && key === "S") environment.forcedStorm = 12;
+    if (!interactive && key === "H") {
+      markInterfaceInstant();
+      shell.classList.toggle("ui-hidden");
+    }
   });
   window.addEventListener("keyup", function (event) {
     if (event.key !== "Control") return;
     inspectHeld = false;
     shell.classList.remove("is-inspecting");
     hideInspector();
-    showInterface();
+    showInterface(true);
   });
   window.addEventListener("blur", function () {
     inspectHeld = false;
@@ -5093,6 +5767,13 @@
   }
   canvas.addEventListener("pointerdown", function (event) {
     if (screensaverMode) return;
+    var pressPosition = pointerPosition(event);
+    if (!event.ctrlKey && !inspectHeld && triggerPlatformFlashlight(pressPosition)) {
+      trackPointer(event, pressPosition);
+      pointer.down = false;
+      event.preventDefault();
+      return;
+    }
     if (event.pointerType !== "mouse") {
       if (touchInspectLatched) {
         inspectHeld = false;
@@ -5191,13 +5872,15 @@
     clearRareEventPreview: function () {
       ecologyPreviewEvent = null;
     },
-    previewBackgroundTitan: function (type) {
-      if (["mountainback", "veilback"].indexOf(type) < 0) return false;
+    previewBackgroundTitan: function (type, progress) {
+      if (type !== "worldArm") return false;
       backgroundTitanPreview = type;
+      backgroundTitanPreviewProgress = clamp(Number.isFinite(Number(progress)) ? Number(progress) : 0.5, 0.05, 0.95);
       return true;
     },
     clearBackgroundTitanPreview: function () {
       backgroundTitanPreview = "";
+      backgroundTitanPreviewProgress = 0.5;
     },
     snapshot: function () {
       var geometry = platformGeometry();
@@ -5227,6 +5910,18 @@
           return screenToWorldX(leviathan.x);
         }),
         density: visualDensity(),
+        lights: {
+          engine: LightField ? LightField.version : null,
+          flashlightActive: !!flashlightField,
+          creatureEmitters: creatureLightFields.length
+        },
+        engines: {
+          motion: MotionEngine ? MotionEngine.version : null,
+          worldPhysics: WorldPhysics ? WorldPhysics.version : null,
+          scene: SceneEngine ? SceneEngine.version : null,
+          director: DirectorEngine ? DirectorEngine.version : null
+        },
+        director: sceneDirector ? sceneDirector.snapshot() : null,
         platformResidents: Array.from({ length: platformResidentCount() }, function (_, residentIndex) {
           return Object.assign({}, platformResidentPose(residentIndex, simulationTime, geometry, {}));
         }),
@@ -5237,7 +5932,10 @@
             x: swimmer.x,
             y: swimmer.y,
             direction: swimmer.direction,
-            behavior: swimmer.behaviorName || "uninitialized"
+            behavior: swimmer.behaviorName || "uninitialized",
+            motionPhase: swimmer.motion ? swimmer.motion.phase : null,
+            propulsion: swimmer.motion ? swimmer.motion.propulsion : null,
+            visualDepth: swimmer.visualDepth
           };
         }),
         swimmersIntersectingStructure: swimmers.reduce(function (count, swimmer) {

@@ -184,7 +184,13 @@ void InitializeWebView(ScreenWindow* window) {
                       window->controller = controller;
                       controller->get_CoreWebView2(&window->webview);
                       ResizeWebView(window);
-                      controller->put_IsVisible(TRUE);
+                      controller->put_IsVisible(FALSE);
+
+                      ComPtr<ICoreWebView2Controller2> controller2;
+                      if (SUCCEEDED(window->controller.As(&controller2)) && controller2) {
+                        COREWEBVIEW2_COLOR oceanNight{255, 6, 6, 18};
+                        controller2->put_DefaultBackgroundColor(oceanNight);
+                      }
 
                       ComPtr<ICoreWebView2Settings> settings;
                       if (SUCCEEDED(window->webview->get_Settings(&settings)) && settings) {
@@ -234,6 +240,14 @@ void InitializeWebView(ScreenWindow* window) {
                         })();
                       )JS";
                       window->webview->AddScriptToExecuteOnDocumentCreated(screenSaverBootstrap, nullptr);
+                      EventRegistrationToken navigationCompletedToken{};
+                      window->webview->add_NavigationCompleted(
+                          Callback<ICoreWebView2NavigationCompletedEventHandler>(
+                              [window](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*) -> HRESULT {
+                                if (window->controller) window->controller->put_IsVisible(TRUE);
+                                return S_OK;
+                              }).Get(),
+                          &navigationCompletedToken);
                       window->webview->Navigate(L"https://mare.local/index.html?screensaver=1");
                       return S_OK;
                     }).Get());

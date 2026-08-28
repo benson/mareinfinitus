@@ -28,7 +28,11 @@ for (const token of [
   "LaunchOptions::Mode::Preview",
   "LaunchOptions::Mode::FullScreen",
   "RequestExit()",
-  "IsWindow(g_previewParent)"
+  "IsWindow(g_previewParent)",
+  "ICoreWebView2Controller2",
+  "put_DefaultBackgroundColor(oceanNight)",
+  "controller->put_IsVisible(FALSE)",
+  "add_NavigationCompleted"
 ]) {
   if (!source.includes(token)) throw new Error(`Windows native host is missing required behavior: ${token}`);
 }

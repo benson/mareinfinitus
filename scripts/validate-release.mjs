@@ -172,7 +172,7 @@ function validateNativeInputs() {
     .filter((file) => path.basename(file).toLowerCase() === "index.html" && /[\\/](?:build|dist|release)[\\/]/i.test(file))
     .map((file) => path.dirname(file));
   for (const webRoot of bundledWebRoots) {
-    for (const asset of ["index.html", "style.css", "app.js", "systems/creature-variation.js", "systems/ecology.js", "systems/ambient-life.js"]) {
+    for (const asset of ["index.html", "style.css", "app.js", "systems/creature-variation.js", "systems/ecology.js", "systems/ambient-life.js", "systems/light-field.js", "systems/motion-engine.js", "systems/world-physics.js", "systems/scene-engine.js", "systems/event-director.js"]) {
       if (!fs.existsSync(path.join(webRoot, asset))) fail(`Native web bundle ${relative(webRoot)} is missing ${asset}.`);
     }
     const html = fs.readFileSync(path.join(webRoot, "index.html"), "utf8");
@@ -184,7 +184,7 @@ function validateNativeInputs() {
   notes.push(`native ${validators.length} source validator(s), ${bundledWebRoots.length} built web bundle(s)`);
 }
 
-const javascriptFiles = ["app.js", "systems/creature-variation.js", "systems/ecology.js", "systems/ambient-life.js"];
+const javascriptFiles = ["app.js", "systems/creature-variation.js", "systems/ecology.js", "systems/ambient-life.js", "systems/light-field.js", "systems/motion-engine.js", "systems/world-physics.js", "systems/scene-engine.js", "systems/event-director.js"];
 for (const file of javascriptFiles) {
   const absolute = requireFile(file);
   if (fs.existsSync(absolute)) runNode(["--check", absolute], `${file} syntax check`);

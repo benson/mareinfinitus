@@ -6,6 +6,8 @@ different screen sizes; the art pixels remain three physical pixels wide.
 
 **Live:** [bensonperry.com/mareinfinitus](https://bensonperry.com/mareinfinitus/)
 
+**Screensaver downloads:** [Windows and macOS release archives](https://github.com/benson/mareinfinitus/releases)
+
 The station design follows the books: a large, multitiered fishing platform on
 roughly twenty pylons above the waves, supported by a deep submerged foundation
 and keel weights.
@@ -20,10 +22,10 @@ Then open `http://localhost:3000/`.
 
 ## Controls
 
+- `T`: open or close the compact settings panel in the bottom-right corner
 - ecosystem-density slider: continuously blends from sparse through balanced to teeming while preserving the same palette and object opacity
-- `A`, `B`, `C`: keyboard shortcuts for sparse, balanced, and teeming density presets
+- `A`: open the About introduction
 - drag through the ocean: inject momentum and suspended material
-- `S`: summon a storm to stress-test the coupled systems
 - `F`: fullscreen
 - `H`: hide or show the interface
 - hold `Control` and hover: identify the creature, traveler, structure, or material beneath the pointer and trace its visible pixel silhouette
@@ -68,12 +70,14 @@ Then open `http://localhost:3000/`.
 
 The in-simulator bestiary separates `BOOK` entries—animals, people, places, or
 details named or described in *Endymion*—from `SIM` entries invented for this
-material study. Major entries include contextual excerpts from the arrival,
+simulation. Major entries include contextual excerpts from the arrival,
 station, open-ocean, and Lamp Mouth passages rather than isolated definition
 fragments. A first-visit introduction gives the spoiler warning and scene
 context; the `ABOUT` control opens it again later.
 
-The interface also fades away automatically for screensaver-style viewing.
+The passive interface is limited to a small bottom-right action dock and fades
+away automatically. Settings and the field guide appear only when explicitly
+opened.
 Control-inspected subjects show the same concise field-guide description used
 by the glossary, without collection counts or implementation-state labels.
 
@@ -130,7 +134,7 @@ test artifacts without creating a release.
 npm test
 ```
 
-The validator syntax-checks every script, checks the 34-entry field guide for
+The validator syntax-checks every script, checks the 33-entry field guide for
 duplicate IDs and retired debug copy, verifies subpath-safe metadata and exact
 asset dimensions, regenerates the icon set deterministically, and validates the
 native packaging inputs.
@@ -141,6 +145,15 @@ native packaging inputs.
 - `systems/creature-variation.js` — restrained, deterministic species body plans and animation cadence
 - `systems/ecology.js` — behaviors, food relationships, schooling, and long-running ecological events
 - `systems/ambient-life.js` — platform residents, room lighting, weather reactions, and background activity
+- `systems/light-field.js` — inertial light aiming, live wave intersections, refraction, attenuation, and reusable volumetric emitters
+- `systems/motion-engine.js` — mass-aware locomotion, articulated spines, direction continuity, and shared soft-body chains
+- `systems/world-physics.js` — spatial perception, depth-aware separation, hydrodynamic body wakes, and buoyancy contacts
+- `systems/scene-engine.js` — shared depth compositing and the evolving water-material field
+- `systems/event-director.js` — long-form quiet/build/reveal/recovery pacing and rare-encounter spacing
+
+The coupling and stability contracts are documented in
+[`docs/SIMULATION.md`](docs/SIMULATION.md).
+
 - `public/` — favicon and social preview artwork
 - `screensaver/windows/` — native Win32/WebView2 `.scr`, installer, and release build
 - `screensaver/macos/` — native ScreenSaver.framework/WKWebView `.saver` and packaging
