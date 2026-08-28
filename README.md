@@ -24,7 +24,6 @@ Then open `http://localhost:3000/`.
 - `A`, `B`, `C`: keyboard shortcuts for sparse, balanced, and teeming density presets
 - drag through the ocean: inject momentum and suspended material
 - `S`: summon a storm to stress-test the coupled systems
-- `D`: show or hide animated directional tracers for the simulated current field
 - `F`: fullscreen
 - `H`: hide or show the interface
 - hold `Control` and hover: identify the creature, traveler, structure, or material beneath the pointer and trace its visible pixel silhouette
@@ -75,9 +74,66 @@ fragments. A first-visit introduction gives the spoiler warning and scene
 context; the `ABOUT` control opens it again later.
 
 The interface also fades away automatically for screensaver-style viewing.
-Control-inspected wildlife is remembered locally; creature entries add a `SEEN`
-count and the tooltip reports the animal's current behavior, temperament, age
-class, scars, and approximate depth. Permanent landmarks do not collect counts.
+Control-inspected subjects show the same concise field-guide description used
+by the glossary, without collection counts or implementation-state labels.
+
+## Native screensavers
+
+The web simulation and both native shells share the same `?screensaver=1`
+runtime. In that mode the welcome screen, controls, field guide, pointer input,
+cursor, and debug API are absent while the material simulation continues
+full-bleed from bundled local assets. Neither native build needs the live site
+after installation.
+
+### Windows
+
+From a Visual Studio 2022 Developer PowerShell:
+
+```powershell
+./screensaver/windows/build.ps1 -Architecture x64 -Clean
+```
+
+This produces `screensaver/windows/release/MareInfinitus-Screensaver-Windows-x64.zip`.
+Extract it and run `Install.cmd`; the package contains a native WebView2 `.scr`,
+offline web assets, and per-user install/uninstall scripts. It implements the
+standard `/s`, `/p HWND`, and `/c` screensaver switches. See
+[`screensaver/windows/README.md`](screensaver/windows/README.md) for prerequisites
+and testing commands.
+
+### macOS
+
+On a Mac with Xcode installed:
+
+```bash
+bash screensaver/macos/build.sh
+bash screensaver/macos/install.sh
+```
+
+The first command creates a universal `arm64` + `x86_64`
+`Mare Infinitus.saver`; the second installs it into the current user's Screen
+Savers folder. Developer ID signing and notarized distribution are supported by
+`screensaver/macos/package-release.sh`. See
+[`screensaver/macos/README.md`](screensaver/macos/README.md).
+
+Apple currently has a reported macOS 26.4 regression in which `WKWebView`
+content inside the public `ScreenSaverView` host can disappear after a few
+seconds. The bundle uses the only public third-party `.saver` architecture, but
+26.4 and later should be smoke-tested before calling the Mac release stable.
+
+Tagging a commit `screensaver-v*` runs the cross-platform build workflow and
+publishes both ZIPs as a prerelease. Manual workflow runs build downloadable
+test artifacts without creating a release.
+
+## Release validation
+
+```powershell
+npm test
+```
+
+The validator syntax-checks every script, checks the 34-entry field guide for
+duplicate IDs and retired debug copy, verifies subpath-safe metadata and exact
+asset dimensions, regenerates the icon set deterministically, and validates the
+native packaging inputs.
 
 ## Project structure
 
@@ -86,6 +142,9 @@ class, scars, and approximate depth. Permanent landmarks do not collect counts.
 - `systems/ecology.js` — behaviors, food relationships, schooling, and long-running ecological events
 - `systems/ambient-life.js` — platform residents, room lighting, weather reactions, and background activity
 - `public/` — favicon and social preview artwork
+- `screensaver/windows/` — native Win32/WebView2 `.scr`, installer, and release build
+- `screensaver/macos/` — native ScreenSaver.framework/WKWebView `.saver` and packaging
+- `scripts/` — deterministic icon generation and release validation
 
 No build step is required. The project is plain HTML, CSS, and JavaScript so the
 same simulation can run locally, from GitHub Pages, or later inside a native

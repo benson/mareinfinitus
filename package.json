@@ -4,7 +4,10 @@
   "private": true,
   "description": "A living pixel-material simulation of Mare Infinitus.",
   "scripts": {
+    "assets": "node scripts/generate-assets.mjs",
+    "assets:check": "node scripts/generate-assets.mjs --check",
     "dev": "npx serve . -l 3000",
-    "test": "node --check app.js"
+    "test": "node scripts/validate-release.mjs",
+    "validate": "node scripts/validate-release.mjs"
   }
 }

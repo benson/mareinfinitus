@@ -9,6 +9,7 @@
     <meta property="og:title" content="Mare Infinitus — A Living Pixel Ocean">
     <meta property="og:description" content="Step into the violet sea: a living pixel-material scene from Dan Simmons’s Hyperion Cantos.">
     <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Benson Perry">
     <meta property="og:url" content="https://bensonperry.com/mareinfinitus/">
     <meta property="og:image" content="https://bensonperry.com/mareinfinitus/public/og.png">
     <meta property="og:image:secure_url" content="https://bensonperry.com/mareinfinitus/public/og.png">
@@ -22,6 +23,9 @@
     <meta name="twitter:image" content="https://bensonperry.com/mareinfinitus/public/og.png">
     <meta name="twitter:image:alt" content="A violet alien ocean beneath an enormous orange world, with a lit platform above glowing sea life.">
     <link rel="icon" href="public/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="public/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="apple-touch-icon" href="public/apple-touch-icon.png">
+    <link rel="manifest" href="public/manifest.webmanifest">
     <link rel="stylesheet" href="style.css">
     <title>Mare Infinitus — A Living Pixel Ocean</title>
   </head>
@@ -45,7 +49,7 @@
           <label>Waves <output data-tuning-output="waveEnergy">1.2×</output><input data-tuning="waveEnergy" type="range" min="0.5" max="2.5" step="0.1" value="1.2"></label>
         </div>
         <div class="control-footer">
-          <small>drag water to stir · S storm · D currents · F fullscreen</small>
+          <small>drag water to stir · S storm · F fullscreen</small>
           <div class="control-actions">
             <button class="about-trigger" type="button" data-welcome-open>ABOUT</button>
             <button class="glossary-trigger" type="button" data-glossary-toggle aria-expanded="false" aria-controls="mare-glossary">
@@ -54,10 +58,10 @@
           </div>
         </div>
       </section>
-      <aside class="glossary-panel ui-chrome" id="mare-glossary" aria-labelledby="glossary-title" hidden>
-        <header class="glossary-header">
+      <aside class="glossary-panel ui-chrome" id="mare-glossary" role="dialog" aria-modal="false" aria-labelledby="glossary-title" hidden>
+        <header class="glossary-header" data-glossary-drag>
           <div>
-            <p>FIELD INDEX</p>
+            <p>FIELD INDEX <span class="glossary-drag-hint">· DRAG TO MOVE</span></p>
             <h1 id="glossary-title">Bestiary &amp; glossary</h1>
           </div>
           <div class="glossary-actions">
@@ -65,7 +69,7 @@
             <button class="glossary-close" type="button" data-glossary-close aria-label="Close bestiary">ESC</button>
           </div>
         </header>
-        <p class="glossary-intro"><strong>Step into this scene from <em>Endymion</em> in deeper detail.</strong> Hold <kbd>CTRL</kbd> and hover to identify anything. Hover an entry to highlight every example; click to copy its <strong>MI code</strong>. Short passages labeled <strong>BOOK TEXT</strong> come from the novel; <strong>SIM</strong> entries are extrapolations for the living material study.</p>
+        <p class="glossary-intro"><strong>Step into this scene from <em>Endymion</em> in deeper detail.</strong> Hold <kbd>CTRL</kbd> and hover to identify anything. Hover an entry to highlight every example; click to copy its <strong>MI code</strong>. Contextual passages labeled <strong>BOOK TEXT</strong> come from the novel; <strong>SIM</strong> entries are extrapolations for the living material study.</p>
         <div class="glossary-key" aria-label="Entry provenance">
           <span><i class="origin-dot book"></i> BOOK — named or described in <em>Endymion</em></span>
           <span><i class="origin-dot sim"></i> SIM — material-study invention</span>
@@ -78,7 +82,10 @@
         <strong data-inspection-name></strong>
         <small data-inspection-summary></small>
       </div>
-      <div class="inspect-key-hint ui-chrome" aria-hidden="true"><kbd>CTRL</kbd> HOLD + HOVER TO IDENTIFY</div>
+      <div class="inspect-key-hint ui-chrome" aria-hidden="true">
+        <span class="pointer-help"><kbd>CTRL</kbd> HOLD + HOVER TO IDENTIFY</span>
+        <span class="touch-help">PRESS + HOLD TO IDENTIFY · TAP AGAIN TO CLOSE</span>
+      </div>
       <div class="welcome-backdrop" data-welcome hidden>
         <section class="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-title" aria-describedby="welcome-description">
           <p class="welcome-kicker">RIVER TETHYS · WORLD 326</p>

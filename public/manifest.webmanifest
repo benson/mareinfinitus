@@ -1,0 +1,26 @@
+{
+  "name": "Mare Infinitus — A Living Pixel Ocean",
+  "short_name": "Mare Infinitus",
+  "description": "A living pixel-material ocean inspired by Dan Simmons's Hyperion Cantos.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#070713",
+  "theme_color": "#070713",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

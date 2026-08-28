@@ -10,6 +10,9 @@
   var WORLD_WRAP_LEFT = -120;
   var WORLD_WRAP_RIGHT = 680;
   var MAX_CREATURE_ANIMATION_RATE = 0.9;
+  var runtimeParams = new URLSearchParams(window.location.search);
+  var screensaverMode = runtimeParams.get("screensaver") === "1";
+  var debugMode = runtimeParams.get("debug") === "1";
 
   var PALETTES = {
     A: {
@@ -81,7 +84,6 @@
   var surface = null;
   var deposits = null;
   var waterTexture = null;
-  var debugFlow = false;
   var tuning = {
     density: 0.7,
     carpetSpeed: 9,
@@ -134,24 +136,36 @@
   var width = 1;
   var height = 1;
   var cameraX = 0;
-  var started = performance.now();
-  var lastFrame = started;
+  var lastFrame = performance.now();
+  var simulationTime = 0;
+  var frameRequest = 0;
+  var resizeRequest = 0;
   var uiTimer = 0;
   var glossaryOpen = false;
   var glossaryPinned = false;
   var glossaryHoverId = "";
+  var glossaryPosition = null;
+  var glossaryDrag = null;
   var inspectHeld = false;
+  var touchInspectLatched = false;
+  var touchInspectTimer = 0;
+  var touchInspectReleaseTimer = 0;
+  var touchInspectStart = null;
   var inspectTargetId = "";
   var inspectSubjectKey = "";
-  var observationCounts = Object.create(null);
-  var observedSubjects = Object.create(null);
   var inspectTooltip = document.querySelector("[data-inspection-tooltip]");
   var inspectId = document.querySelector("[data-inspection-id]");
   var inspectName = document.querySelector("[data-inspection-name]");
   var inspectSummary = document.querySelector("[data-inspection-summary]");
   var inspectMaskCanvas = document.createElement("canvas");
   var inspectMaskCtx = inspectMaskCanvas.getContext("2d", { alpha: true, willReadFrequently: true });
+  var inspectionOutlineCache = {
+    id: "", subjectKey: "", tick: -1, left: 0, top: 0, width: 0, height: 0,
+    component: new Uint8Array(0), queue: new Int32Array(0),
+    inner: new Uint8Array(0), outer: new Uint8Array(0), ready: false
+  };
   var glossaryPanel = document.querySelector("#mare-glossary");
+  var glossaryHeader = document.querySelector("[data-glossary-drag]");
   var glossaryToggle = document.querySelector("[data-glossary-toggle]");
   var glossaryPin = document.querySelector("[data-glossary-pin]");
   var glossaryList = document.querySelector("[data-glossary-list]");
@@ -160,95 +174,128 @@
   var welcomeEnter = document.querySelector("[data-welcome-enter]");
   var welcomeOpen = document.querySelector("[data-welcome-open]");
   var welcomePreviouslyFocused = null;
+  var celestialLateralPhase = Math.random() * Math.PI * 2;
+
+  shell.classList.toggle("screensaver-runtime", screensaverMode);
 
   var BESTIARY = [
-    { id: "MI-00", group: "Ocean materials", name: "Violet sea", origin: "BOOK", summary: "The world-ocean itself. In the book, suspended phytoplankton—not the atmosphere—gives the articulated water its violet color.", excerpts: [
+    { id: "MI-00", group: "Ocean materials", name: "Violet sea", origin: "BOOK", summary: "The world-ocean itself: vast, saline, and empty to every horizon. Suspended phytoplankton—not atmospheric scattering—gives its articulated water the disturbing violet color.", excerpts: [
       { text: "The sea was a disturbing violet, serrated by wave-top crests of a blue so dark as to be almost black, and occasionally broken by yellowkelp beds or foam of an even darker violet.", source: "Endymion, ch. 31" },
       { text: "The violet sea was very big, very empty, and our raft only a speck below, a tiny black rectangle on the reticulated violet-and-black sea.", source: "Endymion, ch. 31" },
-      { text: "Rising with each great movement of the violet sea, dropping into wide troughs as the ocean seemed to breathe in.", source: "Endymion, ch. 34" }
+      { text: "Floating on my back, twisting my head and neck to keep the colored dorsals in view, I kicked my way north, rising with each great movement of the violet sea, dropping into wide troughs as the ocean seemed to breathe in.", source: "Endymion, ch. 34" }
     ] },
-    { id: "MI-01", group: "Ocean materials", name: "Surface foam", origin: "BOOK", summary: "Dark-blue crests and violet foam gather along the moving peaks of the sea, following Raul’s first view of the water.", excerpts: [
+    { id: "MI-01", group: "Ocean materials", name: "Surface foam", origin: "BOOK", summary: "Regular two-meter swells serrate the violet surface with crests so dark blue they appear almost black. Darker violet foam gathers and breaks along their moving peaks.", excerpts: [
       { text: "Easy swells turning into regular two-meter waves that jostled the raft some but were far enough apart to let us ride them without undue discomfort.", source: "Endymion, ch. 31" },
-      { text: "We’re between these swells most of the time. But when we get closer ...", source: "Endymion, ch. 31" }
+      { text: "Aenea was studying the platform again through the binoculars. ‘I don’t think they can see us now,’ she said. ‘We’re between these swells most of the time. But when we get closer ...’ ‘And when the moons rise,’ I added.", source: "Endymion, ch. 31" }
     ] },
     { id: "MI-02", group: "Ocean materials", name: "Phytoplankton bloom", origin: "BOOK", summary: "Drifting clustered specks carried by the current, feeding the small fauna and tinting Mare Infinitus violet.", excerpts: [
       { text: "The violet articulated seas are caused by a form of phytoplankton in the water and are not a result of the atmospheric scattering which grants the traveler such lovely sunsets.", source: "Endymion, ch. 31" },
-      { text: "The moons were rising and the sea was coming alive with light.", source: "Endymion, ch. 33" }
+      { text: "There was no deck or platform down there, just twenty meters of air between my boots and the violet waves. The moons were rising and the sea was coming alive with light.", source: "Endymion, ch. 33" }
     ] },
-    { id: "MI-03", group: "Ocean materials", name: "Suspended silt", origin: "SIM", summary: "Warm brown mineral specks lifted from the deep foundation and carried through the water." },
-    { id: "MI-04", group: "Ocean materials", name: "Pylon bubbles", origin: "SIM", summary: "Small cyan bubbles rising around the submerged platform supports." },
-    { id: "MI-05", group: "Ocean materials", name: "Current tracers", origin: "SIM", summary: "Fine flow threads that reveal the direction and strength of the water when D is held." },
+    { id: "MI-03", group: "Ocean materials", name: "Suspended silt", origin: "SIM", summary: "Warm mineral grains lifted around the station’s immense submerged foundation. Each fleck follows the local flow, settling in quiet water and rising again behind animals, anchors, and moving cables." },
+    { id: "MI-04", group: "Ocean materials", name: "Pylon bubbles", origin: "SIM", summary: "Small cyan bubbles escape around the submerged supports, rising in loose columns that bend sideways wherever the current curls around the station." },
+    { id: "MI-10", group: "Bestiary", name: "School fish", origin: "SIM", summary: "Small grazing fish occupy the bright upper water in shifting groups. They match speed and direction with their neighbors, loosen around food, compress when alarmed, and scatter sharply from larger predators." },
+    { id: "MI-11", group: "Bestiary", name: "Drifting jelly", origin: "SIM", summary: "Translucent bells drift between the surface light and middle depths. Their loose articulated tendrils trail in the current, while an occasional slow contraction provides only enough thrust to change depth or avoid a passing animal." },
+    { id: "MI-12", group: "Bestiary", name: "Violet eel", origin: "SIM", summary: "A slender shallow-to-midwater swimmer whose body carries a restrained lateral wave from head to tail. It threads between schools and station supports, resting in calm water before darting toward food." },
+    { id: "MI-13", group: "Bestiary", name: "Ocean ray", origin: "SIM", summary: "A broad-bodied glider of the middle water. Slow fin strokes produce long, economical movement beneath the schooling fish, and its wake gently rolls plankton and silt outward from each wingtip." },
+    { id: "MI-14", group: "Bestiary", name: "Rainbow shark", origin: "BOOK", summary: "A three-meter predator with twin dorsal fins, shimmering electric color, very white teeth, and a powerful tail. It circles wounded prey and surges upward from beneath the violet swells to attack.", excerpts: [
+      { text: "I saw the fish first. They had dorsals like holos I’d seen of Old Earth sharks, or the cannibal saberbacks of Hyperion’s South Sea, but two shining dorsal fins rather than one. I could see the fish clearly in the moonlight: they seemed to glitter a dozen bright colors, from the twin dorsal fins to their long bellies. They were about three meters long, they moved like predators with powerful surges of their tails, and their teeth were very white.", source: "Endymion, ch. 33" },
+      { text: "It was only a few minutes before the colored sharks began circling again. Their shimmering, electric colors were visible beneath the waves, and when one moved in for the attack, I stopped trying to swim, floated, and kicked at its head in precisely the same way as I had seen the late lieutenant hold the things at bay. The fish were undoubtedly deadly, but they were stupid—they attacked one at a time, as if there were some unseen pecking order among them—and I kicked them in the snout one at a time.", source: "Endymion, ch. 34" }
+    ] },
+    { id: "MI-15", group: "Bestiary", name: "Hectapus", origin: "BOOK", summary: "Named among the local delicacies at Gus’s Oceanic Grill, the hectapus trails eight loose hunting arms beneath a luminous, softly pulsing mantle in the middle depths.", excerpt: "While the Mare Infinitus interlude is very short—five kilometers of such ocean travel is enough for most of the River’s wanderers—it does include the Web-famous Gus’s Oceanic Aquarium and Grill. Be sure to order the grilled sea giant, the hectapus soup, and the excellent yellowweed wine. Dine on one of the many terraces on Gus’s Oceanic platform so that you can enjoy one of Mare Infinitus’s exquisite sunsets and even more exquisite moonrises.", source: "Endymion, ch. 31" },
+    { id: "MI-16", group: "Bestiary", name: "Sea giant", origin: "BOOK", summary: "Another creature named on Gus’s celebrated menu, the sea giant is a heavy, segmented grazer of the deeper water—far larger than the schooling fish and ponderous enough to carry a broad wake behind it.", excerpt: "While this world is noted for its empty ocean expanses (it has no continents or islands) and aggressive sea life (the ‘Lamp Mouth Leviathan’ for example), please be assured that your Tethys Traveler’s ship will stay safely within the Mid-littoral Stream from portal to portal, and be escorted by several Mare Protectorate outrider ships—all so that your brief aquatic interval, set off by a fine dinner at Gus’s Oceanic Grill, will leave only pleasant memories.", source: "Endymion, ch. 31" },
+    { id: "MI-17", group: "Bestiary", name: "Lamp-mouth leviathan", origin: "BOOK", summary: "A grub-white leviathan three times the size of the station platform, massed with eyestalks, gaping mouths, enormous gill slits, hundred-meter tendrils, and dangling antennae tipped with brilliant cold-light lanterns.", excerpts: [
+      { text: "The grub-white beast is easily three times the size of the station platform: a mass of eyestalks, gaping maws, fibrillating gill slits each the size of the thopter, pulsating tendrils extending hundreds of meters, dangling antennae each carrying a cold-light ‘lantern’ of great brilliance—even out here in the daylight—and mouths, many mouths, each large enough to swallow a fleet submarine. As de Soya watches, the harvesting crews are already flocking over the pressure-exploded carcass, sawing off tendrils and eyestalks and cutting the white meat to portable cubes before the hot sun spoils it all.", source: "Endymion, ch. 35" }
+    ] },
+    { id: "MI-18", group: "Bestiary", name: "Deep gigacanth", origin: "BOOK", summary: "The ancient relatives of the surface ’canths inhabit water ten thousand fathoms deep. Some are kilometers long: whale-shaped masses of dim segmented flesh whose passing displaces the abyss and erases the light above them.", excerpt: "The bottom of the ocean here is sort of a problematic thing ... usually ten thousand fathoms, at least ... that’s where the big granddaddies of our surface ’canths like Lamp Mouth live, sir ... monsters down that deep, sir ... klicks long ...", source: "Endymion, ch. 32" },
 
-    { id: "MI-10", group: "Bestiary", name: "School fish", origin: "SIM", summary: "Small grazing fish that school, separate, align, seek plankton, and scatter from predators." },
-    { id: "MI-11", group: "Bestiary", name: "Drifting jelly", origin: "SIM", summary: "Buoyant jellyfish with softly articulated legs, carried more by the water than by their own propulsion." },
-    { id: "MI-12", group: "Bestiary", name: "Violet eel", origin: "SIM", summary: "A quick, shallow-to-midwater swimmer with a lateral wriggle." },
-    { id: "MI-13", group: "Bestiary", name: "Ocean ray", origin: "SIM", summary: "A broad, slow swimmer that glides below the schooling fish." },
-    { id: "MI-14", group: "Bestiary", name: "Rainbow shark", origin: "BOOK", summary: "A named Mare Infinitus predator; here it hunts the schooling fish and leaves a stronger wake.", excerpts: [
-      { text: "They seemed to glitter a dozen bright colors, from the twin dorsal fins to their long bellies. They were about three meters long, they moved like predators with powerful surges of their tails, and their teeth were very white.", source: "Endymion, ch. 33" },
-      { text: "Their shimmering, electric colors were visible beneath the waves ... coming up from beneath seemed to be their preferred mode of attack.", source: "Endymion, ch. 34" }
+    { id: "MI-20", group: "Travelers", name: "River Tethys raft", origin: "BOOK", summary: "The travelers’ handmade gymnosperm-wood raft has crossed directly from a river into Mare Infinitus’s ocean. It remains unusually buoyant in the saline water, but now rocks, takes waves over its edges, and follows the hidden Mid-littoral current toward the farcaster.", excerpts: [
+      { text: "The raft rode quite differently in these gentle but serious ocean swells, but my bargeman’s eye noted that while the waves tended to lap over the edges a bit more, the gymnosperm wood seemed even more buoyant here. I went to one knee near the rudder and gingerly lifted a palmful of sea to my mouth. I spit it out quickly and rinsed my mouth with fresh water from the canteen on my belt. This seawater was far more saline than even Hyperion’s undrinkable oceans.", source: "Endymion, ch. 31" },
+      { text: "I lashed the rudder in place and joined the other two at the front of the raft. Because of the rocking as the gentle ocean swells rolled under us, all three of us were holding on to the upright post there, which still held A. Bettik’s shirt flapping in the night wind. The shirt glowed whitely in the moonlight and starlight.", source: "Endymion, ch. 31" }
     ] },
-    { id: "MI-15", group: "Bestiary", name: "Hectapus", origin: "BOOK", summary: "One of the sea animals named in the old WorldWeb guide: a many-limbed hunter of the middle depths.", excerpt: "The hectapus soup.", source: "Endymion, ch. 31" },
-    { id: "MI-16", group: "Bestiary", name: "Sea giant", origin: "BOOK", summary: "A large deep-water animal named on Gus’s Oceanic menu, slow-moving and heavy in the current.", excerpt: "The grilled sea giant.", source: "Endymion, ch. 31" },
-    { id: "MI-17", group: "Bestiary", name: "Lamp-mouth leviathan", origin: "BOOK", summary: "The aggressive luminous leviathan named in the guidebook; its glow and body displace nearby water.", excerpts: [
-      { text: "The grub-white beast is easily three times the size of the station platform: a mass of eyestalks, gaping maws, fibrillating gill slits each the size of the thopter, pulsating tendrils extending hundreds of meters.", source: "Endymion, ch. 35" },
-      { text: "Dangling antennae each carrying a cold-light ‘lantern’ of great brilliance—even out here in the daylight—and mouths, many mouths, each large enough to swallow a fleet submarine.", source: "Endymion, ch. 35" }
-    ] },
-    { id: "MI-18", group: "Bestiary", name: "Deep gigacanth", origin: "BOOK", summary: "One of the scarcely seen, kilometer-scale ancestors of the surface predators, living far below the mid-littoral current.", excerpt: "That’s where the big granddaddies of our surface ’canths like Lamp Mouth live, sir ... monsters down that deep, sir ... klicks long ...", source: "Endymion, ch. 32" },
-
-    { id: "MI-20", group: "Travelers", name: "River Tethys raft", origin: "BOOK", summary: "A buoyant gymnosperm-wood raft crossing the ocean segment of the River Tethys.", excerpts: [
-      { text: "The raft rode quite differently in these gentle but serious ocean swells, but my bargeman’s eye noted that while the waves tended to lap over the edges a bit more, the gymnosperm wood seemed even more buoyant here.", source: "Endymion, ch. 31" },
-      { text: "Because of the rocking as the gentle ocean swells rolled under us, all three of us were holding on to the upright post there, which still held A. Bettik’s shirt flapping in the night wind.", source: "Endymion, ch. 31" }
-    ] },
-    { id: "MI-21", group: "Travelers", name: "Aenea", origin: "BOOK", summary: "The pale figure riding the raft while Raul scouts ahead.", excerpt: "‘Wow,’ Aenea said softly to herself. I guessed that she was talking about the rising moons. All three were huge and orange.", source: "Endymion, ch. 31" },
-    { id: "MI-22", group: "Travelers", name: "A. Bettik", origin: "BOOK", summary: "The blue android steering the raft while Aenea and Raul scout ahead.", excerpt: "A. Bettik was standing—shirtless once again in the midday heat—at the steering oar. He waved a bare blue arm. We both waved back.", source: "Endymion, ch. 31" },
-    { id: "MI-23", group: "Travelers", name: "Raul on the hawking mat", origin: "BOOK", summary: "Raul scouting ahead on the charged hawking mat, skimming low and fast over the swells.", excerpts: [
-      { text: "I banked left, swooped beneath the support beams there, and skipped just above the waves, heading west under the protective edge of the platform.", source: "Endymion, ch. 33" },
-      { text: "I swooped out from under the platform into the shadow of it ... and stayed just millimeters above the wave tops.", source: "Endymion, ch. 33" }
+    { id: "MI-21", group: "Travelers", name: "Aenea", origin: "BOOK", summary: "Aenea rides the raft with A. Bettik while Raul scouts ahead. Her small pale silhouette and quiet attention give the impossible scale of Mare Infinitus—especially its rising worlds—something human to measure against.", excerpt: "‘Wow,’ Aenea said softly to herself. I guessed that she was talking about the rising moons. All three were huge and orange, but the center one was so large that even half of its diameter as it rose seemed to fill what I still thought of as the eastern sky. Aenea rose to her feet, and her standing silhouette still came less than halfway up the giant orange hemisphere.", source: "Endymion, ch. 31" },
+    { id: "MI-22", group: "Travelers", name: "A. Bettik", origin: "BOOK", summary: "The blue android steadies and steers the raft while Raul and Aenea scout. His exposed blue skin is the clearest visual distinction between the two travelers remaining aboard.", excerpt: "I looked over her shoulder. We were about a thousand meters above the sea now, and the raft looked tiny but was clearly visible. A. Bettik was standing—shirtless once again in the midday heat—at the steering oar. He waved a bare blue arm. We both waved back.", source: "Endymion, ch. 31" },
+    { id: "MI-23", group: "Travelers", name: "Raul on the hawking mat", origin: "BOOK", summary: "Raul lies low on the ancient hawking mat, banks beneath the station’s support beams, and skims west through their shadows only millimeters above the wave tops.", excerpts: [
+      { text: "I banked left, swooped beneath the support beams there, and skipped just above the waves, heading west under the protective edge of the platform. Only one deck protruded out this far—the one I’d dropped onto—and I could see that it was empty at the north end. Not just empty, I realized, but shot to bits from the flechette fire and probably too dangerous to stand on. I flew under it and continued west. Boots clattered on the upper catwalks, but anyone catching a glimpse of me would have a hell of a rough time lining up a shot because of the dozens of pylons and cross girders here.", source: "Endymion, ch. 33" },
+      { text: "I swooped out from under the platform into the shadow of it—the moons were higher now—and stayed just millimeters above the wave tops, staying low, trying to keep the long ocean swell between me and the western end of the platform.", source: "Endymion, ch. 33" }
     ] },
 
-    { id: "MI-30", group: "Structures", name: "Farcaster portal", origin: "BOOK", summary: "The hundred-meter arch on the horizon that the raft must pass through to continue along the River Tethys.", excerpts: [
-      { text: "The arch was just visible, a chord of negative space cutting into the Milky Way just above the horizon.", source: "Endymion, ch. 31" },
-      { text: "There is no way to get inside the ancient Core-constructed arch, nor to tell where—if anywhere—someone might have been transported through it.", source: "Endymion, ch. 35" }
+    { id: "MI-30", group: "Structures", name: "Farcaster portal", origin: "BOOK", summary: "The ancient hundred-meter arch marks the River Tethys route through Mare Infinitus. At night it first appears as negative space against the Milky Way; by Raul’s time it is inert, inaccessible, and impossible to interrogate from the outside.", excerpts: [
+      { text: "It was just after dark and the moons had not risen when we saw the lights blinking on the eastern horizon. We rushed to the front of the raft and tried to make out what was out there—Aenea using the binoculars, A. Bettik the night goggles on full amplification, and me the rifle’s scope. The arch was just visible, a chord of negative space cutting into the Milky Way just above the horizon.", source: "Endymion, ch. 31" },
+      { text: "The two dozen Pax engineers who have been swarming over the farcaster portal for three weeks report only that there is no sign that the ancient arch had been activated, despite sightings of a bright flash by several fishermen on the platform that night. The engineers also report that there is no way to get inside the ancient Core-constructed arch, nor to tell where—if anywhere—someone might have been transported through it.", source: "Endymion, ch. 35" }
     ] },
-    { id: "MI-31", group: "Structures", name: "Station 326 Mid-littoral", origin: "BOOK", summary: "The huge multi-level fishing platform: dark wood and steel, lit windows, landing pads, docks, and catwalks.", excerpts: [
-      { text: "It’s a platform in the ocean—big—on stilts of some sort. The platform, with its blinking navigation beacons for aircraft and lamplit windows just becoming visible, was several klicks closer.", source: "Endymion, ch. 31" },
-      { text: "It has a lot of levels ... There are several ships tied up ... fishing boats is my bet. And a pad for skimmers and other aircraft.", source: "Endymion, ch. 31" },
-      { text: "Mare Infinitus Station Three-twenty-six Mid-littoral.", source: "Endymion, ch. 35" }
+    { id: "MI-31", group: "Structures", name: "Station 326 Mid-littoral", origin: "BOOK", summary: "A huge inhabited fishing platform planted directly in the Mid-littoral current, crowded with stacked modules, lamplit windows, navigation beacons, tied boats, aircraft decks, maintenance catwalks, and open understructure.", excerpts: [
+      { text: "‘It’s not the arch,’ said Aenea. ‘It’s a platform in the ocean—big—on stilts of some sort.’ ‘I do see the arch, however,’ said the android, who was looking several degrees north of the blinking light. The arch was just visible, a chord of negative space cutting into the Milky Way just above the horizon. The platform, with its blinking navigation beacons for aircraft and lamplit windows just becoming visible, was several klicks closer. And between us and the farcaster.", source: "Endymion, ch. 31" },
+      { text: "I studied the large platform through the rifle scope. ‘It has a lot of levels,’ I muttered. ‘There are several ships tied up ... fishing boats is my bet. And a pad for skimmers and other aircraft. I think I see a couple of thopters tied down there.’", source: "Endymion, ch. 31" },
+      { text: "Mare Infinitus Station Three-twenty-six Mid-littoral, where the hawking mat was discovered, is declared a crime zone and put under martial law. De Soya brings in Pax troops and ships from the floating city of St. Thérèse and places all of the former Pax garrison and the fishing guests under house arrest.", source: "Endymion, ch. 35" }
     ] },
-    { id: "MI-32", group: "Structures", name: "Platform pylons", origin: "BOOK", summary: "Supports hold the main platform well above the waves, leaving open water and air beneath its deck.", excerpt: "There was no deck or platform down there, just twenty meters of air between my boots and the violet waves. The moons were rising and the sea was coming alive with light.", source: "Endymion, ch. 33" },
-    { id: "MI-33", group: "Structures", name: "Submerged foundation", origin: "BOOK", summary: "The great weighted base beneath the station, holding it in a sea whose floor lies thousands of fathoms below.", excerpt: "They run these foundation bases a couple of hundred fathoms—big, heavy things they’ve got to be, sir—and then run big, bladed drag anchors out on cables beneath that.", source: "Endymion, ch. 32" },
-    { id: "MI-34", group: "Structures", name: "Mooring buoy", origin: "SIM", summary: "A floating marker tethered to the platform, tugging against wind, waves, and current." },
-    { id: "MI-35", group: "Structures", name: "Sea-anchor line", origin: "BOOK", summary: "One of the immense cables trailing from a bladed drag anchor to keep the station from roaming with the Big Tides.", excerpt: "With those keelweights and twenty klicks of cable trailing to rock, our cities and platforms don’t go very far, even in the Big Tide season.", source: "Endymion, ch. 32" },
-    { id: "MI-36", group: "Structures", name: "Platform occupants", origin: "BOOK", summary: "A sparse pair of residents now pace, watch the edge, work, wave, and occasionally search the water with a light.", excerpt: "Footsteps pounded on the catwalks beneath the main deck.", source: "Endymion, ch. 33" },
+    { id: "MI-32", group: "Structures", name: "Platform pylons", origin: "BOOK", summary: "A forest of narrow supports holds the inhabited decks far above the swells. The raft and hawking mat can pass through the open water beneath, while the repeating posts fragment sightlines and make the station feel much larger than its visible edge.", excerpt: "I rolled off the edge of the roof but grabbed the overhang as I did so, peering down between my swinging boots as my fingers slipped. There was no deck or platform down there, just twenty meters of air between my boots and the violet waves. The moons were rising and the sea was coming alive with light.", source: "Endymion, ch. 33" },
+    { id: "MI-33", group: "Structures", name: "Submerged foundation", origin: "BOOK", summary: "With no island or ordinary seabed available, the station rests on an immense engineered foundation descending hundreds of fathoms. Its dark weighted mass disturbs the current beneath the pylons and gives smaller animals a vertical reef-like habitat.", excerpt: "There are the coral rings—but they’re not secured to anything, they float, and the yellowkelp islands, but they’re not ... I mean, you put a foot on them, it goes right through, if you know what I mean, sir. Anyway, what the old Hegemony engineers did is, they rigged the portals sort of like we’ve been doing with the platforms and cities for the last five hundred years, sir. That is, they run these foundation bases a couple of hundred fathoms—big, heavy things they’ve got to be, sir—and then run big, bladed drag anchors out on cables beneath that.", source: "Endymion, ch. 32" },
+    { id: "MI-34", group: "Structures", name: "Mooring buoy", origin: "SIM", summary: "A small surface marker tethered near the station. Its body rises and rolls with the swells while the line below bends, tightens, and relaxes against wind and current." },
+    { id: "MI-35", group: "Structures", name: "Sea-anchor line", origin: "BOOK", summary: "One immense cable runs from the station’s weighted base toward a bladed drag anchor beyond the visible water. Its slow flexible motion reveals both the scale of the engineering and the enormous force of Mare Infinitus’s seasonal tides.", excerpt: "With those keelweights and twenty klicks of cable trailing to rock, our cities and platforms don’t go very far, even in the Big Tide season, no, sir. But these portals ... well, we have lots of submarine volcanic activity on Mare-Eye, sir. The old Webdays’ engineers fixed those portals so that if their keelweights and cables sensed volcanic activity under them, they’d just ... well, migrate, sir, is the best word I can think of.", source: "Endymion, ch. 32" },
+    { id: "MI-36", group: "Structures", name: "Platform occupants", origin: "BOOK", summary: "A few distant residents cross the decks and catwalks, tend the station, pause at the rail, wave over the water, or sweep a handlight through the open structure below.", excerpt: "Trapdoors were flying open and footsteps pounded on the catwalks beneath the main deck, but I reached the eastern deck first. I jumped to it, found the mat where I had lashed it to the post, unrolled it, tapped the flight threads, and was up and flying over the railing just as a trapdoor opened above the long flight of stairs coming down to the deck.", source: "Endymion, ch. 33" },
 
-    { id: "MI-40", group: "Sky", name: "Near-Jovian primary", origin: "BOOK", summary: "The immense rocky world in the sky. Mare Infinitus is its second moon, not the other way around.", excerpts: [
-      { text: "Mare Infinitus ... is the satellite of a near Jovian-sized rocky world.", source: "Endymion, ch. 31" },
-      { text: "All three were huge and orange, but the center one was so large that even half of its diameter as it rose seemed to fill what I still thought of as the eastern sky.", source: "Endymion, ch. 31" },
-      { text: "Aenea rose to her feet, and her standing silhouette still came less than halfway up the giant orange hemisphere.", source: "Endymion, ch. 31" }
+    { id: "MI-40", group: "Sky", name: "Near-Jovian primary", origin: "BOOK", summary: "Mare Infinitus is the satellite of this near-Jovian rocky world. The immense orange hemisphere rises through the eastern stars until even Aenea’s standing silhouette reaches less than halfway up its face.", excerpts: [
+      { text: "‘Wow,’ Aenea said softly to herself. I guessed that she was talking about the rising moons. All three were huge and orange, but the center one was so large that even half of its diameter as it rose seemed to fill what I still thought of as the eastern sky. Aenea rose to her feet, and her standing silhouette still came less than halfway up the giant orange hemisphere.", source: "Endymion, ch. 31" },
+      { text: "The largest of the moons was still in the sky as the suns rose—first the smaller of the binaries, a brilliant mote in the morning sky, paling the Milky Way to invisibility and dulling the details on the large moon, and then the primary, smaller than Hyperion’s Sol-like sun, but very bright. The sky deepened to an ultramarine and then deepened further to a cobalt-blue, with the two stars blazing and the orange moon filling the sky behind us. Sunlight made the moon’s atmosphere a hazy disk and banished the surface features from our sight.", source: "Endymion, ch. 31" }
     ] },
-    { id: "MI-41", group: "Sky", name: "Storm front", origin: "SIM", summary: "A dark weather mass carrying wind, rain, lightning, and rougher seas across the horizon." },
+    { id: "MI-41", group: "Sky", name: "Storm front", origin: "SIM", summary: "A broad weather mass darkens the horizon, strengthens the wind and current, drives vertical rain across the ocean, roughens the swells, and occasionally illuminates its own interior with lightning." },
 
-    { id: "MI-50", group: "Ecological phenomena", name: "Mass jelly bloom", origin: "SIM", summary: "A rare gathering of buoyant jellies drawn into a food-rich current layer." },
-    { id: "MI-51", group: "Ecological phenomena", name: "Pelagic migration", origin: "SIM", summary: "A coordinated passage that aligns fish, rays, and sea giants into a temporary traveling corridor." },
-    { id: "MI-52", group: "Ecological phenomena", name: "Feeding frenzy", origin: "SIM", summary: "A short burst of concentrated prey movement, hunting, fluid disturbance, and plankton consumption." },
-    { id: "MI-53", group: "Ecological phenomena", name: "Deep quiet", origin: "SIM", summary: "A long dim interval when movement and visible particles recede while biological glow becomes easier to see." },
-    { id: "MI-54", group: "Ecological phenomena", name: "Distant breach", origin: "SIM", summary: "A rare animal breaking the horizon far from the platform and sending energy back into the free surface." },
-    { id: "MI-55", group: "Ecological phenomena", name: "Abyssal shadow passage", origin: "SIM", summary: "An enormous segmented absence crossing the deep water, displacing current and erasing plankton from its silhouette." },
-    { id: "MI-56", group: "Ecological phenomena", name: "Abyssal titan", origin: "SIM", summary: "A vanishingly rare, landscape-scale animal passing behind the visible ecosystem—more absence than creature at this distance." }
+    { id: "MI-50", group: "Ecological phenomena", name: "Mass jelly bloom", origin: "SIM", summary: "A food-rich current gathers many drifting jellies into the same luminous layer. Their bells remain independent, but their shared depth and direction briefly turn scattered animals into a slow living constellation." },
+    { id: "MI-51", group: "Ecological phenomena", name: "Pelagic migration", origin: "SIM", summary: "Fish, rays, eels, and larger animals align into a traveling corridor, each species holding its preferred depth and pace while the whole procession follows the same distant current." },
+    { id: "MI-52", group: "Ecological phenomena", name: "Feeding frenzy", origin: "SIM", summary: "Concentrated plankton pulls prey into a tight region; their motion in turn attracts hunters. The short event produces rapid scattering, feeding, stronger wakes, and a visible local disturbance in the material sea." },
+    { id: "MI-53", group: "Ecological phenomena", name: "Deep quiet", origin: "SIM", summary: "A long dim interval when nearby animals settle and suspended material thins. With less surface activity competing for attention, the faint biological glow of deep creatures becomes easier—and sometimes less comfortable—to notice." },
+    { id: "MI-54", group: "Ecological phenomena", name: "Distant breach", origin: "SIM", summary: "Far beyond the raft, a large animal briefly breaks the horizon and disappears again. A delayed pulse spreads outward from the breach and reaches the nearer swells long after the body is gone." },
+    { id: "MI-55", group: "Ecological phenomena", name: "Abyssal shadow passage", origin: "SIM", summary: "A segmented absence crosses the deep water, displacing a faint current and occluding plankton and biological glow before sinking beyond the illuminated layers." },
+    { id: "MI-56", group: "Ecological phenomena", name: "Abyssal titan", origin: "SIM", summary: "A landscape-scale animal passes behind the pelagic life: segmented ridges, a dim eye, and slow fins or veils emerging only where its immense shadow interrupts the abyss." }
   ];
   var BESTIARY_BY_ID = Object.create(null);
-  BESTIARY.forEach(function (entry) { BESTIARY_BY_ID[entry.id] = entry; });
-
-  try {
-    var savedObservations = JSON.parse(window.localStorage.getItem("mare-observations-v1") || "null");
-    if (savedObservations && savedObservations.counts && savedObservations.subjects) {
-      observationCounts = savedObservations.counts;
-      observedSubjects = savedObservations.subjects;
-    }
-  } catch (error) {
-    observationCounts = Object.create(null);
-    observedSubjects = Object.create(null);
-  }
+  BESTIARY.forEach(function (entry) {
+    if (BESTIARY_BY_ID[entry.id]) throw new Error("Duplicate field-guide id: " + entry.id);
+    BESTIARY_BY_ID[entry.id] = entry;
+  });
+  var INSPECTION_REGISTRY = {
+    "MI-00": { mask: "sea" },
+    "MI-01": { mask: "surface" },
+    "MI-02": { mask: "particle", particleKind: "plankton" },
+    "MI-03": { mask: "particle", particleKind: "silt" },
+    "MI-04": { mask: "particle", particleKind: "bubble" },
+    "MI-10": { mask: "swimmer", swimmerKind: "fish" },
+    "MI-11": { mask: "swimmer", swimmerKind: "jelly" },
+    "MI-12": { mask: "swimmer", swimmerKind: "eel" },
+    "MI-13": { mask: "swimmer", swimmerKind: "ray" },
+    "MI-14": { mask: "swimmer", swimmerKind: "shark" },
+    "MI-15": { mask: "swimmer", swimmerKind: "hectapus" },
+    "MI-16": { mask: "swimmer", swimmerKind: "seaGiant" },
+    "MI-17": { mask: "leviathan" },
+    "MI-18": { mask: "colossal" },
+    "MI-20": { mask: "raft" },
+    "MI-21": { mask: "traveler" },
+    "MI-22": { mask: "traveler" },
+    "MI-23": { mask: "carpet" },
+    "MI-30": { mask: "portal", semanticAperture: true },
+    "MI-31": { mask: "platform" },
+    "MI-32": { mask: "pylons" },
+    "MI-33": { mask: "foundation" },
+    "MI-34": { mask: "buoy" },
+    "MI-35": { mask: "mooring" },
+    "MI-36": { mask: "occupants" },
+    "MI-40": { mask: "planet" },
+    "MI-41": { mask: "storm" },
+    "MI-50": { mask: "ecology", eventType: "jellyBloom" },
+    "MI-51": { mask: "ecology", eventType: "migration" },
+    "MI-52": { mask: "ecology", eventType: "feedingFrenzy" },
+    "MI-53": { mask: "ecology", eventType: "deepQuiet" },
+    "MI-54": { mask: "ecology", eventType: "distantBreach" },
+    "MI-55": { mask: "ecology", eventType: "shadowPassage" },
+    "MI-56": { mask: "titan" }
+  };
+  var SWIMMER_INSPECTION_IDS = Object.create(null);
+  Object.keys(INSPECTION_REGISTRY).forEach(function (id) {
+    if (!BESTIARY_BY_ID[id]) throw new Error("Inspection registry references unknown id: " + id);
+    var descriptor = INSPECTION_REGISTRY[id];
+    if (descriptor.swimmerKind) SWIMMER_INSPECTION_IDS[descriptor.swimmerKind] = id;
+  });
 
   function hash(n) {
     var value = Math.sin(n * 12.9898) * 43758.5453;
@@ -347,9 +394,7 @@
         name.textContent = entry.name;
         var origin = document.createElement("span");
         origin.className = "entry-origin " + entry.origin.toLowerCase();
-        origin.textContent = entry.origin + (isCountableObservation(entry.id) && observationCounts[entry.id]
-          ? " · SEEN " + observationCounts[entry.id]
-          : "");
+        origin.textContent = entry.origin;
         var summary = document.createElement("span");
         summary.className = "entry-summary";
         summary.textContent = entry.summary;
@@ -400,12 +445,18 @@
   }
 
   function setGlossaryOpen(nextOpen) {
+    if (screensaverMode) nextOpen = false;
     glossaryOpen = !!nextOpen;
     if (glossaryPanel) glossaryPanel.hidden = !glossaryOpen;
     if (glossaryToggle) glossaryToggle.setAttribute("aria-expanded", String(glossaryOpen));
     if (glossaryOpen) {
       shell.classList.remove("ui-hidden");
       window.clearTimeout(uiTimer);
+      if (glossaryPosition) {
+        window.requestAnimationFrame(function () {
+          positionGlossary(glossaryPosition.left, glossaryPosition.top, false);
+        });
+      }
       var closeButton = glossaryPanel && glossaryPanel.querySelector("[data-glossary-close]");
       if (closeButton) closeButton.focus({ preventScroll: true });
     } else {
@@ -432,16 +483,88 @@
     if (glossaryPinned && !glossaryOpen) setGlossaryOpen(true);
   }
 
+  function positionGlossary(left, top, persist) {
+    if (!glossaryPanel || glossaryPanel.hidden) return;
+    var rect = glossaryPanel.getBoundingClientRect();
+    var panelWidth = Math.min(rect.width || 470, Math.max(1, window.innerWidth - 16));
+    var panelHeight = Math.min(rect.height || window.innerHeight - 32, Math.max(1, window.innerHeight - 16));
+    var maxLeft = Math.max(8, window.innerWidth - panelWidth - 8);
+    var maxTop = Math.max(8, window.innerHeight - panelHeight - 8);
+    glossaryPosition = {
+      left: clamp(left, 8, maxLeft),
+      top: clamp(top, 8, maxTop)
+    };
+    glossaryPanel.style.left = glossaryPosition.left + "px";
+    glossaryPanel.style.top = glossaryPosition.top + "px";
+    glossaryPanel.style.right = "auto";
+    glossaryPanel.style.bottom = "auto";
+    glossaryPanel.style.width = panelWidth + "px";
+    glossaryPanel.style.height = panelHeight + "px";
+    if (persist) {
+      try {
+        window.localStorage.setItem("mare-glossary-position", JSON.stringify(glossaryPosition));
+      } catch (error) {
+        // Dragging still works without persistent storage.
+      }
+    }
+  }
+
+  function beginGlossaryDrag(event) {
+    if (!glossaryPanel || glossaryPanel.hidden || !glossaryHeader) return;
+    if (event.button !== undefined && event.button !== 0) return;
+    if (event.target.closest && event.target.closest("button")) return;
+    var rect = glossaryPanel.getBoundingClientRect();
+    glossaryDrag = {
+      pointerId: event.pointerId,
+      grabX: event.clientX - rect.left,
+      grabY: event.clientY - rect.top
+    };
+    glossaryPanel.style.left = rect.left + "px";
+    glossaryPanel.style.top = rect.top + "px";
+    glossaryPanel.style.right = "auto";
+    glossaryPanel.style.bottom = "auto";
+    glossaryPanel.style.width = rect.width + "px";
+    glossaryPanel.style.height = rect.height + "px";
+    glossaryPanel.classList.add("is-dragging");
+    glossaryHeader.setPointerCapture && glossaryHeader.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function moveGlossary(event) {
+    if (!glossaryDrag || event.pointerId !== glossaryDrag.pointerId) return;
+    positionGlossary(event.clientX - glossaryDrag.grabX, event.clientY - glossaryDrag.grabY, false);
+  }
+
+  function endGlossaryDrag(event) {
+    if (!glossaryDrag || event.pointerId !== glossaryDrag.pointerId) return;
+    glossaryHeader.releasePointerCapture && glossaryHeader.releasePointerCapture(event.pointerId);
+    glossaryDrag = null;
+    glossaryPanel.classList.remove("is-dragging");
+    if (glossaryPosition) positionGlossary(glossaryPosition.left, glossaryPosition.top, true);
+  }
+
+  function setWelcomeBackgroundInert(inert) {
+    Array.prototype.forEach.call(shell.children, function (child) {
+      if (child === welcome) return;
+      child.inert = inert;
+      if (inert) child.setAttribute("aria-hidden", "true");
+      else child.removeAttribute("aria-hidden");
+    });
+  }
+
   function setWelcomeOpen(nextOpen, remember) {
     if (!welcome) return;
+    if (screensaverMode) nextOpen = false;
     var opening = !!nextOpen;
     welcome.hidden = !opening;
     shell.classList.toggle("welcome-open", opening);
     if (opening) {
       welcomePreviouslyFocused = document.activeElement;
+      setWelcomeBackgroundInert(true);
       window.clearTimeout(uiTimer);
       if (welcomeEnter) welcomeEnter.focus({ preventScroll: true });
     } else {
+      setWelcomeBackgroundInert(false);
       if (remember) {
         try {
           window.localStorage.setItem("mare-welcome-seen-v1", "1");
@@ -472,45 +595,32 @@
     var orbitTop = -112;
     var orbitBottom = 224;
     var orbitTravel = (143 + time * 0.14) % (orbitBottom - orbitTop);
+    var lateralDrift = 235 + Math.sin(celestialLateralPhase + time * 0.012) * 25;
     return {
-      x: Math.floor(worldToScreenX(94 - (orbitTravel - 143) * 0.18)),
+      x: Math.floor(worldToScreenX(lateralDrift - (orbitTravel - 143) * 0.08)),
       y: orbitTop + orbitTravel,
       radius: 94
     };
   }
 
   function swimmerInspectionId(kind) {
-    if (kind === "jelly") return "MI-11";
-    if (kind === "eel") return "MI-12";
-    if (kind === "ray") return "MI-13";
-    if (kind === "shark") return "MI-14";
-    if (kind === "hectapus") return "MI-15";
-    if (kind === "seaGiant") return "MI-16";
-    return "MI-10";
+    return SWIMMER_INSPECTION_IDS[kind] || "MI-10";
   }
 
   function ecologicalEventInspectionId(type) {
-    if (type === "jellyBloom") return "MI-50";
-    if (type === "migration") return "MI-51";
-    if (type === "feedingFrenzy") return "MI-52";
-    if (type === "deepQuiet") return "MI-53";
-    if (type === "distantBreach") return "MI-54";
-    if (type === "shadowPassage") return "MI-55";
+    var ids = Object.keys(INSPECTION_REGISTRY);
+    for (var i = 0; i < ids.length; i += 1) {
+      if (INSPECTION_REGISTRY[ids[i]].eventType === type) return ids[i];
+    }
     return "";
   }
 
   function ecologicalEventTypeForInspection(id) {
-    if (id === "MI-50") return "jellyBloom";
-    if (id === "MI-51") return "migration";
-    if (id === "MI-52") return "feedingFrenzy";
-    if (id === "MI-53") return "deepQuiet";
-    if (id === "MI-54") return "distantBreach";
-    if (id === "MI-55") return "shadowPassage";
-    return "";
+    return INSPECTION_REGISTRY[id] && INSPECTION_REGISTRY[id].eventType || "";
   }
 
   function inspectionSubjectAt(x, y, time, targetId) {
-    if (targetId >= "MI-10" && targetId <= "MI-16") {
+    if (INSPECTION_REGISTRY[targetId] && INSPECTION_REGISTRY[targetId].mask === "swimmer") {
       for (var swimmerIndex = swimmers.length - 1; swimmerIndex >= 0; swimmerIndex -= 1) {
         var swimmer = swimmers[swimmerIndex];
         if (swimmerInspectionId(swimmer.kind) !== targetId) continue;
@@ -532,65 +642,11 @@
     return null;
   }
 
-  function observationKey(targetId, subject) {
+  function inspectionSubjectKey(targetId, subject) {
     if (!subject) return targetId;
     if (Number.isFinite(subject.seed)) return targetId + ":" + subject.seed.toFixed(6);
     if (Number.isFinite(subject.phase)) return targetId + ":" + subject.phase.toFixed(4);
     return targetId;
-  }
-
-  function isCountableObservation(targetId, subject) {
-    var creatureEntry = targetId >= "MI-10" && targetId <= "MI-18";
-    return creatureEntry && (subject !== undefined ? !!subject : true);
-  }
-
-  function saveObservations() {
-    try {
-      window.localStorage.setItem("mare-observations-v1", JSON.stringify({
-        counts: observationCounts,
-        subjects: observedSubjects
-      }));
-    } catch (error) {
-      // Observation history is optional in private or restricted browsing contexts.
-    }
-  }
-
-  function recordObservation(targetId, subject) {
-    var key = observationKey(targetId, subject);
-    if (!isCountableObservation(targetId, subject)) return key;
-    if (observedSubjects[key]) return key;
-    observedSubjects[key] = 1;
-    observationCounts[targetId] = (observationCounts[targetId] || 0) + 1;
-    var entryButton = glossaryList && glossaryList.querySelector('[data-entry-id="' + targetId + '"]');
-    var origin = entryButton && entryButton.querySelector(".entry-origin");
-    var entry = BESTIARY_BY_ID[targetId];
-    if (origin && entry) origin.textContent = entry.origin + " · SEEN " + observationCounts[targetId];
-    saveObservations();
-    return key;
-  }
-
-  function observationDetail(subject, geometry) {
-    if (!subject) return "";
-    var parts = [];
-    if (subject.behaviorName) parts.push(String(subject.behaviorName).toUpperCase());
-    else if (subject.behavior && subject.behavior.state) parts.push(String(subject.behavior.state).toUpperCase());
-    else if (subject.state) parts.push(String(subject.state).toUpperCase());
-    if (subject.ecology) {
-      if (subject.ecology.boldness > 0.72) parts.push("BOLD");
-      else if (subject.ecology.curiosity > 0.7) parts.push("CURIOUS");
-      else if (subject.ecology.sociability > 0.72) parts.push("SOCIAL");
-      else if (subject.ecology.boldness < 0.32) parts.push("SKITTISH");
-    }
-    if (subject.variation) {
-      if (subject.variation.ageClass === 0) parts.push("JUVENILE");
-      else if (subject.variation.ageClass === 2) parts.push("ELDER");
-      if (subject.variation.scarCount > 0) parts.push("SCARRED");
-    }
-    if (Number.isFinite(subject.y)) {
-      var depth = clamp((subject.y - geometry.line) / Math.max(1, height - geometry.line), 0, 1);
-      parts.push(Math.round(depth * 100) + "% DEPTH");
-    }
-    return parts.join(" · ");
   }
 
   function inspectionTargetAt(x, y, time) {
@@ -657,12 +713,6 @@
     var portalDY = (y - portalY) / 61;
     if (portalDY >= -1.04 && portalDY <= 0.1 && portalDX * portalDX + portalDY * portalDY <= 1.08) {
       return "MI-30";
-    }
-
-    if (debugFlow && y >= geometry.line) {
-      var tracerX = 12 + Math.round((x - 12) / 30) * 30;
-      var tracerY = geometry.line + 12 + Math.round((y - geometry.line - 12) / 30) * 30;
-      if (Math.abs(x - tracerX) <= 13 && Math.abs(y - tracerY) <= 13) return "MI-05";
     }
 
     for (var particleIndex = particles.length - 1; particleIndex >= 0; particleIndex -= 1) {
@@ -741,14 +791,13 @@
       return;
     }
     var subject = inspectionSubjectAt(pointer.x, pointer.y, time, targetId);
-    var subjectKey = recordObservation(targetId, subject);
+    var subjectKey = inspectionSubjectKey(targetId, subject);
     if (inspectTargetId !== targetId || inspectSubjectKey !== subjectKey) {
       inspectTargetId = targetId;
       inspectSubjectKey = subjectKey;
       inspectId.textContent = entry.id + " · " + entry.origin;
       inspectName.textContent = entry.name;
-      var detail = observationDetail(subject, platformGeometry());
-      inspectSummary.textContent = detail ? detail + " — " + entry.summary : entry.summary;
+      inspectSummary.textContent = entry.summary;
     }
     var tooltipWidth = 244;
     var tooltipHeight = 96;
@@ -817,13 +866,7 @@
   }
 
   function swimmerKindForInspection(id) {
-    if (id === "MI-11") return "jelly";
-    if (id === "MI-12") return "eel";
-    if (id === "MI-13") return "ray";
-    if (id === "MI-14") return "shark";
-    if (id === "MI-15") return "hectapus";
-    if (id === "MI-16") return "seaGiant";
-    return "fish";
+    return INSPECTION_REGISTRY[id] && INSPECTION_REGISTRY[id].swimmerKind || "fish";
   }
 
   function drawInspectionMask(id, time, geometry) {
@@ -833,38 +876,36 @@
     var sceneCtx = ctx;
     ctx = inspectMaskCtx;
     try {
-      if (id === "MI-40") {
+      var descriptor = INSPECTION_REGISTRY[id] || {};
+      if (descriptor.mask === "planet") {
         drawPlanet(time, INSPECTION_MASK_PALETTE);
         ctx.clearRect(0, geometry.line, width, height - geometry.line);
       }
-      else if (id === "MI-30") drawPortal(time, INSPECTION_MASK_PALETTE, geometry.line);
-      else if (id === "MI-23") drawCarpet(time, INSPECTION_MASK_PALETTE, geometry.line);
-      else if (id === "MI-20") {
+      else if (descriptor.mask === "portal") drawPortal(time, INSPECTION_MASK_PALETTE, geometry.line);
+      else if (descriptor.mask === "carpet") drawCarpet(time, INSPECTION_MASK_PALETTE, geometry.line);
+      else if (descriptor.mask === "raft") {
         drawRaftUnder(INSPECTION_MASK_PALETTE);
         drawRaftAbove(time, INSPECTION_MASK_PALETTE);
-      } else if (id === "MI-21" || id === "MI-22") drawInspectionPerson(id, time);
-      else if (id === "MI-18") drawColossalEncounters(time, INSPECTION_MASK_PALETTE, geometry.line);
-      else if (id === "MI-17") drawLeviathans(time, INSPECTION_MASK_PALETTE);
-      else if (id >= "MI-10" && id <= "MI-16") {
+      } else if (descriptor.mask === "traveler") drawInspectionPerson(id, time);
+      else if (descriptor.mask === "colossal") drawColossalEncounters(time, INSPECTION_MASK_PALETTE, geometry.line);
+      else if (descriptor.mask === "leviathan") drawLeviathans(time, INSPECTION_MASK_PALETTE, true);
+      else if (descriptor.mask === "swimmer") {
         drawSwimmers(time, INSPECTION_MASK_PALETTE, swimmerKindForInspection(id));
-      } else if (id === "MI-34") drawInspectionBuoy();
-      else if (id === "MI-35") drawMooringUnder(INSPECTION_MASK_PALETTE);
-      else if (id === "MI-36") drawInspectionOccupants(time, geometry);
-      else if (id === "MI-32") drawInspectionPylons(geometry);
-      else if (id === "MI-33") drawSubstructure(time, INSPECTION_MASK_PALETTE, geometry);
-      else if (id === "MI-31") drawPlatform(time, INSPECTION_MASK_PALETTE, geometry);
-      else if (id === "MI-01") drawSurface(time, INSPECTION_MASK_PALETTE, geometry.line, raft.x);
-      else if (id === "MI-02") drawParticles(INSPECTION_MASK_PALETTE, "plankton");
-      else if (id === "MI-03") drawParticles(INSPECTION_MASK_PALETTE, "silt");
-      else if (id === "MI-04") drawParticles(INSPECTION_MASK_PALETTE, "bubble");
-      else if (id === "MI-05") drawFluidDebug(time, INSPECTION_MASK_PALETTE);
-      else if (id === "MI-41") {
+      } else if (descriptor.mask === "buoy") drawInspectionBuoy();
+      else if (descriptor.mask === "mooring") drawMooringUnder(INSPECTION_MASK_PALETTE);
+      else if (descriptor.mask === "occupants") drawInspectionOccupants(time, geometry);
+      else if (descriptor.mask === "pylons") drawInspectionPylons(geometry);
+      else if (descriptor.mask === "foundation") drawSubstructure(time, INSPECTION_MASK_PALETTE, geometry);
+      else if (descriptor.mask === "platform") drawPlatform(time, INSPECTION_MASK_PALETTE, geometry);
+      else if (descriptor.mask === "surface") drawSurface(time, INSPECTION_MASK_PALETTE, geometry.line, raft.x);
+      else if (descriptor.mask === "particle") drawParticles(INSPECTION_MASK_PALETTE, descriptor.particleKind);
+      else if (descriptor.mask === "storm") {
         drawWeather(time, INSPECTION_MASK_PALETTE, geometry.line);
         ctx.clearRect(0, geometry.line, width, height - geometry.line);
-      } else if (id === "MI-56") {
+      } else if (descriptor.mask === "titan") {
         drawBackgroundTitans(time, INSPECTION_MASK_PALETTE, geometry.line);
-      } else if (id >= "MI-50" && id <= "MI-55") {
-        drawRareEcology(time, INSPECTION_MASK_PALETTE, geometry, ecologicalEventTypeForInspection(id));
+      } else if (descriptor.mask === "ecology") {
+        drawRareEcology(time, INSPECTION_MASK_PALETTE, geometry, descriptor.eventType);
       }
     } finally {
       inspectMaskCtx.globalAlpha = 1;
@@ -873,8 +914,9 @@
   }
 
   function drawInspectionSubjectMask(id, time, geometry, subject) {
-    var supported = id === "MI-30" || id === "MI-17" || id === "MI-18" ||
-      (id >= "MI-10" && id <= "MI-16");
+    var descriptor = INSPECTION_REGISTRY[id] || {};
+    var supported = descriptor.semanticAperture || descriptor.mask === "leviathan" ||
+      descriptor.mask === "colossal" || descriptor.mask === "swimmer";
     if (!supported) return false;
     inspectMaskCtx.setTransform(1, 0, 0, 1, 0, 0);
     inspectMaskCtx.clearRect(0, 0, width, height);
@@ -882,20 +924,20 @@
     var sceneCtx = ctx;
     ctx = inspectMaskCtx;
     try {
-      if (id === "MI-30") {
+      if (descriptor.semanticAperture) {
         drawPortal(time, INSPECTION_MASK_PALETTE, geometry.line);
         return true;
       }
       if (!subject) return false;
-      if (id >= "MI-10" && id <= "MI-16") {
+      if (descriptor.mask === "swimmer") {
         drawVariedSwimmer(subject, time, INSPECTION_MASK_PALETTE);
         return true;
       }
-      if (id === "MI-17") {
+      if (descriptor.mask === "leviathan") {
         drawLeviathanActor(time, INSPECTION_MASK_PALETTE, subject, leviathans.indexOf(subject), true);
         return true;
       }
-      if (id === "MI-18") {
+      if (descriptor.mask === "colossal") {
         var active = activeColossalEncounter(time, geometry.line);
         if (!active) return false;
         drawColossalEncounter(time, INSPECTION_MASK_PALETTE, geometry.line, active.encounter, active.index, true);
@@ -911,7 +953,7 @@
   function inspectionSearchRadius(id) {
     if (id === "MI-18") return 100;
     if (id === "MI-31" || id === "MI-32" || id === "MI-33") return 34;
-    if (id === "MI-01" || id === "MI-05" || id === "MI-41") return 22;
+    if (id === "MI-01" || id === "MI-41") return 22;
     if (id === "MI-17") return 42;
     return 14;
   }
@@ -922,6 +964,77 @@
     ctx.globalAlpha = 0.9;
     for (var x = 0; x < width; x += 1) {
       pixelRect(x, Math.round(surfaceY(x, time, geometry.line, raft.x)), 1, 1, palette.foam);
+    }
+    ctx.restore();
+  }
+
+  function inspectionMaskBounds(id, subject, outlineAll, geometry) {
+    if (outlineAll || !subject) return { left: 0, top: 0, width: width, height: height };
+    var centerX = Number(subject.x);
+    var centerY = Number(subject.y);
+    var radiusX = 24;
+    var radiusY = 20;
+    var descriptor = INSPECTION_REGISTRY[id] || {};
+    if (descriptor.mask === "swimmer") {
+      var extents = swimmerCollisionExtents(subject, {});
+      radiusX = Math.max(12, extents.x + 10);
+      radiusY = Math.max(12, extents.y + 10);
+    } else if (descriptor.mask === "leviathan") {
+      radiusX = 78 * subject.scale;
+      radiusY = 34 * subject.scale;
+    } else if (descriptor.mask === "colossal") {
+      var active = activeColossalEncounter(simulationTime, geometry.line);
+      if (active) {
+        centerX = active.state.x;
+        centerY = active.state.y;
+        radiusX = 42 * active.state.scale;
+        radiusY = 18 * active.state.scale;
+      }
+    }
+    if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+      return { left: 0, top: 0, width: width, height: height };
+    }
+    var left = clamp(Math.floor(centerX - radiusX), 0, width - 1);
+    var top = clamp(Math.floor(centerY - radiusY), 0, height - 1);
+    var right = clamp(Math.ceil(centerX + radiusX), left + 1, width);
+    var bottom = clamp(Math.ceil(centerY + radiusY), top + 1, height);
+    return { left: left, top: top, width: right - left, height: bottom - top };
+  }
+
+  function ensureInspectionBuffers(pixelCount) {
+    if (inspectionOutlineCache.component.length >= pixelCount) return;
+    inspectionOutlineCache.component = new Uint8Array(pixelCount);
+    inspectionOutlineCache.queue = new Int32Array(pixelCount);
+    inspectionOutlineCache.inner = new Uint8Array(pixelCount);
+    inspectionOutlineCache.outer = new Uint8Array(pixelCount);
+  }
+
+  function paintInspectionOutlineCache() {
+    if (!inspectionOutlineCache.ready) return;
+    var pixelCount = inspectionOutlineCache.width * inspectionOutlineCache.height;
+    var palette = PALETTES[mode];
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = palette.abyss;
+    for (var outer = 0; outer < pixelCount; outer += 1) {
+      if (inspectionOutlineCache.outer[outer]) {
+        ctx.fillRect(
+          inspectionOutlineCache.left + outer % inspectionOutlineCache.width,
+          inspectionOutlineCache.top + Math.floor(outer / inspectionOutlineCache.width),
+          1, 1
+        );
+      }
+    }
+    ctx.globalAlpha = 0.96;
+    ctx.fillStyle = palette.foam;
+    for (var inner = 0; inner < pixelCount; inner += 1) {
+      if (inspectionOutlineCache.inner[inner]) {
+        ctx.fillRect(
+          inspectionOutlineCache.left + inner % inspectionOutlineCache.width,
+          inspectionOutlineCache.top + Math.floor(inner / inspectionOutlineCache.width),
+          1, 1
+        );
+      }
     }
     ctx.restore();
   }
@@ -937,12 +1050,31 @@
       return;
     }
     var subject = outlineAll ? null : inspectionSubjectAt(pointer.x, pointer.y, time, id);
+    var subjectKey = inspectionSubjectKey(id, subject);
+    var poseTick = Math.floor(time * 24);
+    var bounds = inspectionMaskBounds(id, subject, outlineAll, geometry);
+    if (
+      inspectionOutlineCache.ready && inspectionOutlineCache.id === id &&
+      inspectionOutlineCache.subjectKey === subjectKey && inspectionOutlineCache.tick === poseTick &&
+      inspectionOutlineCache.left === bounds.left && inspectionOutlineCache.top === bounds.top &&
+      inspectionOutlineCache.width === bounds.width && inspectionOutlineCache.height === bounds.height
+    ) {
+      paintInspectionOutlineCache();
+      return;
+    }
+
     var subjectMask = !outlineAll && drawInspectionSubjectMask(id, time, geometry, subject);
     if (!subjectMask) drawInspectionMask(id, time, geometry);
-
-    var image = inspectMaskCtx.getImageData(0, 0, width, height);
-    var pixelCount = width * height;
-    var component = new Uint8Array(pixelCount);
+    var image = inspectMaskCtx.getImageData(bounds.left, bounds.top, bounds.width, bounds.height);
+    var pixelCount = bounds.width * bounds.height;
+    ensureInspectionBuffers(pixelCount);
+    var component = inspectionOutlineCache.component;
+    var queue = inspectionOutlineCache.queue;
+    var innerOutline = inspectionOutlineCache.inner;
+    var outerOutline = inspectionOutlineCache.outer;
+    component.fill(0, 0, pixelCount);
+    innerOutline.fill(0, 0, pixelCount);
+    outerOutline.fill(0, 0, pixelCount);
     if (outlineAll || subjectMask) {
       for (var allIndex = 0; allIndex < pixelCount; allIndex += 1) {
         if (image.data[allIndex * 4 + 3] >= 18) component[allIndex] = 1;
@@ -953,8 +1085,8 @@
       var maxDistance = inspectionSearchRadius(id);
       for (var index = 0; index < pixelCount; index += 1) {
         if (image.data[index * 4 + 3] < 18) continue;
-        var maskX = index % width;
-        var maskY = Math.floor(index / width);
+        var maskX = bounds.left + index % bounds.width;
+        var maskY = bounds.top + Math.floor(index / bounds.width);
         var dx = maskX - pointer.x;
         var dy = maskY - pointer.y;
         var distance2 = dx * dx + dy * dy;
@@ -965,7 +1097,6 @@
       }
       if (seed < 0 || nearestDistance2 > maxDistance * maxDistance) return;
 
-      var queue = new Int32Array(pixelCount);
       var head = 0;
       var tail = 0;
       component[seed] = 1;
@@ -974,15 +1105,15 @@
       while (head < tail) {
         var current = queue[head];
         head += 1;
-        var currentX = current % width;
-        var currentY = Math.floor(current / width);
+        var currentX = current % bounds.width;
+        var currentY = Math.floor(current / bounds.width);
         for (var oy = -1; oy <= 1; oy += 1) {
           for (var ox = -1; ox <= 1; ox += 1) {
             if (ox === 0 && oy === 0) continue;
             var nextX = currentX + ox;
             var nextY = currentY + oy;
-            if (nextX < 0 || nextX >= width || nextY < 0 || nextY >= height) continue;
-            var next = nextY * width + nextX;
+            if (nextX < 0 || nextX >= bounds.width || nextY < 0 || nextY >= bounds.height) continue;
+            var next = nextY * bounds.width + nextX;
             if (component[next] || image.data[next * 4 + 3] < 18) continue;
             component[next] = 1;
             queue[tail] = next;
@@ -992,22 +1123,20 @@
       }
     }
 
-    var innerOutline = new Uint8Array(pixelCount);
-    var outerOutline = new Uint8Array(pixelCount);
     for (var componentIndex = 0; componentIndex < pixelCount; componentIndex += 1) {
       if (!component[componentIndex]) continue;
-      var componentX = componentIndex % width;
-      var componentY = Math.floor(componentIndex / width);
-      var boundary = componentX === 0 || componentX === width - 1 || componentY === 0 || componentY === height - 1 ||
+      var componentX = componentIndex % bounds.width;
+      var componentY = Math.floor(componentIndex / bounds.width);
+      var boundary = componentX === 0 || componentX === bounds.width - 1 || componentY === 0 || componentY === bounds.height - 1 ||
         !component[componentIndex - 1] || !component[componentIndex + 1] ||
-        !component[componentIndex - width] || !component[componentIndex + width];
+        !component[componentIndex - bounds.width] || !component[componentIndex + bounds.width];
       if (!boundary) continue;
       for (var outlineY = -2; outlineY <= 2; outlineY += 1) {
         for (var outlineX = -2; outlineX <= 2; outlineX += 1) {
           var paintX = componentX + outlineX;
           var paintY = componentY + outlineY;
-          if (paintX < 0 || paintX >= width || paintY < 0 || paintY >= height) continue;
-          var paintIndex = paintY * width + paintX;
+          if (paintX < 0 || paintX >= bounds.width || paintY < 0 || paintY >= bounds.height) continue;
+          var paintIndex = paintY * bounds.width + paintX;
           if (component[paintIndex]) continue;
           outerOutline[paintIndex] = 1;
           if (Math.abs(outlineX) <= 1 && Math.abs(outlineY) <= 1) innerOutline[paintIndex] = 1;
@@ -1015,19 +1144,15 @@
       }
     }
 
-    var palette = PALETTES[mode];
-    ctx.save();
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = palette.abyss;
-    for (var outer = 0; outer < pixelCount; outer += 1) {
-      if (outerOutline[outer]) ctx.fillRect(outer % width, Math.floor(outer / width), 1, 1);
-    }
-    ctx.globalAlpha = 0.96;
-    ctx.fillStyle = palette.foam;
-    for (var inner = 0; inner < pixelCount; inner += 1) {
-      if (innerOutline[inner]) ctx.fillRect(inner % width, Math.floor(inner / width), 1, 1);
-    }
-    ctx.restore();
+    inspectionOutlineCache.id = id;
+    inspectionOutlineCache.subjectKey = subjectKey;
+    inspectionOutlineCache.tick = poseTick;
+    inspectionOutlineCache.left = bounds.left;
+    inspectionOutlineCache.top = bounds.top;
+    inspectionOutlineCache.width = bounds.width;
+    inspectionOutlineCache.height = bounds.height;
+    inspectionOutlineCache.ready = true;
+    paintInspectionOutlineCache();
   }
 
   function drawPixelDisc(cx, cy, radius, color) {
@@ -2957,13 +3082,20 @@
       for (var bodyY = -halfHeight; bodyY <= halfHeight; bodyY += 1) {
         var edge = halfHeight - Math.abs(bodyY);
         var bodySeed = index * 911 + bodyX * 17.3 + bodyY * 31.7;
-        if (edge < 2 && hash(bodySeed) < 0.25) continue;
+        if (!inspectionOnly && edge < 2 && hash(bodySeed) < 0.25) continue;
         var bodyColor = hash(bodySeed + 4.1) > 0.91
           ? palette.steelDark
           : hash(bodySeed + 7.7) > 0.965
             ? palette.waterDeep
             : palette.creature;
-        pixelRect(x + bodyX * scale, y + (bodyCenterY + bodyY) * scale, 1, 1, bodyColor);
+        var maskPixelSize = inspectionOnly ? Math.max(1, Math.ceil(scale)) : 1;
+        pixelRect(
+          x + bodyX * scale,
+          y + (bodyCenterY + bodyY) * scale,
+          maskPixelSize,
+          maskPixelSize,
+          bodyColor
+        );
       }
     }
     var seamCount = traits ? clamp(traits.segmentCount - 2, 2, 6) : 3;
@@ -2996,9 +3128,9 @@
     ctx.globalAlpha = 1;
   }
 
-  function drawLeviathans(time, palette) {
+  function drawLeviathans(time, palette, inspectionOnly) {
     for (var i = 0; i < leviathans.length; i += 1) {
-      drawLeviathanActor(time, palette, leviathans[i], i);
+      drawLeviathanActor(time, palette, leviathans[i], i, inspectionOnly);
     }
   }
 
@@ -3192,7 +3324,8 @@
     }
   }
 
-  function drawColossalTendrils(palette, encounter, fade, scale) {
+  function drawColossalTendrils(palette, encounter, fade, scale, color) {
+    var tendrilColor = color || palette.creature;
     ctx.globalAlpha = fade;
     for (var tendril = 0; tendril < encounter.tendrils.length; tendril += 1) {
       var chain = encounter.tendrils[tendril];
@@ -3202,13 +3335,13 @@
           chain.points[point - 1].y,
           chain.points[point].x,
           chain.points[point].y,
-          palette.creature,
+          tendrilColor,
           Math.max(1, Math.round(scale * 0.16))
         );
       }
       var tip = chain.points[chain.points.length - 1];
-      ctx.globalAlpha = 0.2;
-      pixelRect(tip.x, tip.y, 1, 1, tendril % 3 === 0 ? palette.plankton : palette.bubble);
+      ctx.globalAlpha = fade * 0.34;
+      pixelRect(tip.x, tip.y, 1, 1, tendrilColor);
       ctx.globalAlpha = fade;
     }
     ctx.globalAlpha = 1;
@@ -3258,7 +3391,9 @@
     var direction = encounter.direction;
     var radiusX = Math.max(20, Math.round(22 * scale));
     var radiusY = Math.max(9, Math.round(7.5 * scale));
-    var fade = index === 0 ? 0.46 : 0.34;
+    var fade = index === 0 ? 0.3 : 0.24;
+    var distantColor = inspectionOnly ? palette.creature : palette.waterDeep;
+    var distantDetail = inspectionOnly ? palette.creature : palette.steelDark;
 
     if (!inspectionOnly) {
       for (var halo = 0; halo < 176; halo += 1) {
@@ -3275,20 +3410,21 @@
     }
 
     ctx.globalAlpha = inspectionOnly ? 1 : fade;
-    ctx.fillStyle = palette.creature;
+    ctx.fillStyle = distantColor;
     for (var bodyX = -radiusX; bodyX <= radiusX; bodyX += 1) {
       var anatomicalX = bodyX * direction / radiusX;
-      var envelope = Math.sqrt(Math.max(0, 1 - anatomicalX * anatomicalX));
-      var tailTaper = anatomicalX < -0.38
-        ? lerp(0.32, 1, clamp((anatomicalX + 1) / 0.62, 0, 1))
+      var envelope = Math.pow(Math.max(0, 1 - anatomicalX * anatomicalX), 0.56);
+      var tailTaper = anatomicalX < -0.46
+        ? lerp(0.15, 1, smoothstep(clamp((anatomicalX + 1) / 0.54, 0, 1)))
         : 1;
-      var forehead = anatomicalX > 0.38
-        ? 1 + Math.sin(clamp((anatomicalX - 0.38) / 0.62, 0, 1) * Math.PI) * 0.16
+      var cranialMass = 1 + Math.exp(-Math.pow((anatomicalX - 0.52) * 4.2, 2)) * 0.24;
+      var shoulderHump = 1 + Math.exp(-Math.pow((anatomicalX - 0.08) * 3.2, 2)) * 0.18;
+      var tailStock = 1 - Math.exp(-Math.pow((anatomicalX + 0.54) * 7.5, 2)) * 0.24;
+      var ribNotches = anatomicalX > -0.36 && anatomicalX < 0.42
+        ? 1 - Math.pow(Math.max(0, Math.cos((anatomicalX + 0.3) * Math.PI * 4.2)), 6) * 0.055
         : 1;
-      var shoulder = 1 + Math.exp(-Math.pow((anatomicalX - 0.2) * 3.5, 2)) * 0.09;
-      var segmentWaist = 1 - Math.exp(-Math.pow((anatomicalX + 0.4) * 9, 2)) * 0.11;
-      var halfHeight = radiusY * envelope * tailTaper * forehead * shoulder * segmentWaist;
-      var spineArch = -radiusY * (0.09 + anatomicalX * 0.035) * envelope;
+      var halfHeight = radiusY * envelope * tailTaper * cranialMass * shoulderHump * tailStock * ribNotches;
+      var spineArch = -radiusY * (0.12 + Math.exp(-Math.pow((anatomicalX + 0.02) * 2.7, 2)) * 0.12) * envelope;
       var edgeMobility = Math.pow(envelope, 0.7);
       var slowBreath = Math.sin(time * 0.072 + encounter.phase) * scale * 0.15 * edgeMobility;
       var topRipple = Math.sin(time * 0.108 + encounter.phase + anatomicalX * 5.2) * scale * 0.2 * edgeMobility;
@@ -3298,15 +3434,15 @@
       ctx.fillRect(Math.round(x + bodyX), columnTop, 1, Math.max(1, columnBottom - columnTop + 1));
     }
 
-    ctx.globalAlpha = 0.24;
-    for (var bodyMark = 0; bodyMark < 84; bodyMark += 1) {
+    ctx.globalAlpha = inspectionOnly ? 1 : fade * 0.22;
+    for (var bodyMark = 0; bodyMark < 38; bodyMark += 1) {
       var bodySeed = index * 401.3 + bodyMark * 37.7;
       var markX = x + (hash(bodySeed) - 0.5) * radiusX * 1.55;
       var markY = y + (hash(bodySeed + 9.2) - 0.5) * radiusY * 1.25;
       var ellipse = Math.pow((markX - x) / radiusX, 2) + Math.pow((markY - y) / radiusY, 2);
-      if (ellipse < 0.78) pixelRect(markX, markY, bodyMark % 7 === 0 ? 2 : 1, 1, bodyMark % 9 === 0 ? palette.bubble : palette.steelDark);
+      if (ellipse < 0.72) pixelRect(markX, markY, 1, 1, distantDetail);
     }
-    ctx.globalAlpha = fade;
+    ctx.globalAlpha = inspectionOnly ? 1 : fade * 0.28;
 
     for (var bodySegment = 0; bodySegment < 3; bodySegment += 1) {
       var segmentPosition = [-0.42, 0.02, 0.42][bodySegment];
@@ -3314,45 +3450,48 @@
       var segmentHalfHeight = radiusY * (0.52 + bodySegment * 0.08);
       for (var segmentY = -segmentHalfHeight; segmentY <= segmentHalfHeight; segmentY += 4) {
         var seamCurve = Math.sin(segmentY * 0.09 + time * 0.055 + bodySegment) * scale * 0.18;
-        pixelRect(segmentX + seamCurve, y + segmentY, 1, 2, palette.steelDark);
+        if ((Math.round(segmentY / 4) + bodySegment) % 2 === 0) {
+          pixelRect(segmentX + seamCurve, y + segmentY, 1, 2, distantDetail);
+        }
       }
     }
 
+    ctx.globalAlpha = inspectionOnly ? 1 : fade * 0.62;
     var tailBaseX = x - direction * radiusX * 0.82;
     var tailReach = radiusX * 0.58;
     drawColossalAppendage(
       tailBaseX, y - radiusY * 0.08, direction, tailReach, -radiusY * 0.58,
       radiusY * 0.19, time, encounter.phase + 0.6,
-      Math.max(2, scale * 0.44), palette.creature
+      Math.max(2, scale * 0.44), distantColor
     );
     drawColossalAppendage(
       tailBaseX, y + radiusY * 0.08, direction, tailReach, radiusY * 0.58,
       radiusY * 0.19, time, encounter.phase + 3.2,
-      Math.max(2, scale * 0.44), palette.creature
+      Math.max(2, scale * 0.44), distantColor
     );
     var lowerFinX = x - direction * radiusX * 0.05;
     drawColossalAppendage(
       lowerFinX, y + radiusY * 0.48, direction, radiusX * 0.24, radiusY * 0.82,
       radiusY * 0.14, time, encounter.phase + 5.1,
-      Math.max(2, scale * 0.34), palette.creature
+      Math.max(2, scale * 0.34), distantColor
     );
     var dorsalFinX = x - direction * radiusX * 0.08;
     drawColossalAppendage(
       dorsalFinX, y - radiusY * 0.72, direction, radiusX * 0.18, -radiusY * 0.48,
       radiusY * 0.1, time, encounter.phase + 1.9,
-      Math.max(2, scale * 0.3), palette.creature
+      Math.max(2, scale * 0.3), distantColor
     );
 
     var faceX = x + direction * radiusX * 0.78;
     var eyeY = y - radiusY * 0.12;
     var eyeRadius = Math.max(2, Math.round(scale * 0.46));
-    ctx.globalAlpha = 0.055;
+    ctx.globalAlpha = inspectionOnly ? 1 : 0.025;
     drawPixelDisc(faceX, eyeY, eyeRadius + Math.max(2, Math.round(scale * 0.7)), palette.bubble);
-    ctx.globalAlpha = 0.38;
-    drawPixelDisc(faceX, eyeY, eyeRadius, palette.plankton);
+    ctx.globalAlpha = inspectionOnly ? 1 : 0.16;
+    drawPixelDisc(faceX, eyeY, eyeRadius, palette.kelp);
     drawPixelDisc(faceX + direction, eyeY, Math.max(1, Math.round(eyeRadius * 0.38)), palette.abyss);
 
-    ctx.globalAlpha = fade * 0.56;
+    ctx.globalAlpha = inspectionOnly ? 1 : fade * 0.32;
     for (var antenna = 0; antenna < 5; antenna += 1) {
       var antennaBaseY = y + (antenna - 2) * radiusY * 0.19;
       drawColossalWhisker(
@@ -3365,19 +3504,20 @@
         time,
         encounter.phase + antenna * 1.27,
         Math.max(1, Math.round(scale * 0.14)),
-        palette.creature
+        distantColor
       );
     }
 
-    ctx.globalAlpha = fade * 0.7;
+    ctx.globalAlpha = inspectionOnly ? 1 : fade * 0.22;
     for (var marking = 0; marking < 42; marking += 1) {
       var markingAmount = marking / 41;
       var markingX = x - direction * radiusX * 0.58 + direction * radiusX * 1.14 * markingAmount;
       var markingY = y - radiusY * (0.52 + Math.sin(markingAmount * Math.PI * 3) * 0.08);
-      if (marking % 6 !== 1) pixelRect(markingX, markingY, 1, 1, marking % 5 === 0 ? palette.plankton : palette.bubble);
+      if (marking % 6 !== 1) pixelRect(markingX, markingY, 1, 1, distantDetail);
     }
 
-    drawColossalTendrils(palette, encounter, fade, scale);
+    drawColossalTendrils(palette, encounter, inspectionOnly ? 1 : fade * 0.5, scale, distantColor);
+    ctx.globalAlpha = 1;
   }
 
   function drawColossalEncounters(time, palette, line) {
@@ -3587,6 +3727,7 @@
     var movementDrive = clamp(speed / Math.max(0.55, swimmer.size * 1.1), 0, 1);
     var animationRate = clamp(swimmer.behaviorAnimationRate || 0.72, 0.3, MAX_CREATURE_ANIMATION_RATE) *
       lerp(0.52, 1, movementDrive);
+    if (swimmer.kind === "eel") animationRate *= 0.32;
     var pose = CreatureVariation.poseAt(traits, time * animationRate, speed, variationPose);
     var colors = swimmerPalette(swimmer, palette, traits, variationColors);
     var x = Math.round(swimmer.x);
@@ -3851,73 +3992,6 @@
         boltX = nextBoltX;
         boltY = nextBoltY;
         boltSegment += 1;
-      }
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  function drawFluidDebug(time, palette) {
-    if (!debugFlow || !fluid) return;
-    var directions = [
-      [1, 0],
-      [1, 1],
-      [0, 1],
-      [-1, 1],
-      [-1, 0],
-      [-1, -1],
-      [0, -1],
-      [1, -1]
-    ];
-    ctx.globalAlpha = 0.9;
-    for (var row = 2; row < fluid.rows; row += 5) {
-      for (var col = 2; col < fluid.cols; col += 5) {
-        var index = fluidIndex(col, row);
-        if (fluid.solid[index]) continue;
-        var x = col * FLUID_CELL;
-        var y = fluid.line + row * FLUID_CELL;
-        var speed = Math.sqrt(fluid.u[index] * fluid.u[index] + fluid.v[index] * fluid.v[index]);
-        if (speed < 0.025) continue;
-        var directionIndex = Math.round(Math.atan2(fluid.v[index], fluid.u[index]) / (Math.PI / 4));
-        directionIndex = (directionIndex + 8) % 8;
-        var directionX = directions[directionIndex][0];
-        var directionY = directions[directionIndex][1];
-        var perpendicularX = -directionY;
-        var perpendicularY = directionX;
-        var tailLength = speed > 1.2 ? 12 : speed > 0.45 ? 10 : 8;
-
-        var phase = (time * (2.2 + Math.min(speed, 1.8)) + hash(row * 43.7 + col * 17.3) * 3) % 3;
-        for (var bead = phase; bead < tailLength - 3; bead += 3) {
-          pixelRect(x + directionX * bead, y + directionY * bead, 1, 1, palette.foam);
-        }
-        pixelRect(x + directionX * tailLength, y + directionY * tailLength, 1, 1, palette.sun);
-        pixelRect(
-          x + directionX * (tailLength - 1) + perpendicularX,
-          y + directionY * (tailLength - 1) + perpendicularY,
-          1,
-          1,
-          palette.sun
-        );
-        pixelRect(
-          x + directionX * (tailLength - 1) - perpendicularX,
-          y + directionY * (tailLength - 1) - perpendicularY,
-          1,
-          1,
-          palette.sun
-        );
-        pixelRect(
-          x + directionX * (tailLength - 2) + perpendicularX * 2,
-          y + directionY * (tailLength - 2) + perpendicularY * 2,
-          1,
-          1,
-          palette.sun
-        );
-        pixelRect(
-          x + directionX * (tailLength - 2) - perpendicularX * 2,
-          y + directionY * (tailLength - 2) - perpendicularY * 2,
-          1,
-          1,
-          palette.sun
-        );
       }
     }
     ctx.globalAlpha = 1;
@@ -4571,10 +4645,13 @@
     drawPlatform(time, palette, geometry);
     drawRaftAbove(time, palette);
     drawCarpet(time, palette, geometry.line);
-    drawFluidDebug(time, palette);
   }
 
   function resize() {
+    resizeRequest = 0;
+    var nextWidth = Math.max(1, Math.ceil(window.innerWidth / ART_PIXEL));
+    var nextHeight = Math.max(1, Math.ceil(window.innerHeight / ART_PIXEL));
+    if (nextWidth === width && nextHeight === height && canvas.width === width && canvas.height === height) return;
     var oldCameraX = cameraX;
     var oldWidth = width;
     var oldHeight = height;
@@ -4586,8 +4663,8 @@
     var oldDeposits = deposits;
     var hadWorld = !!fluid;
 
-    width = Math.max(1, Math.ceil(window.innerWidth / ART_PIXEL));
-    height = Math.max(1, Math.ceil(window.innerHeight / ART_PIXEL));
+    width = nextWidth;
+    height = nextHeight;
     cameraX = (REFERENCE_WIDTH - width) * 0.5;
     var xShift = oldCameraX - cameraX;
     var newLine = waterlineY();
@@ -4596,6 +4673,7 @@
     canvas.height = height;
     inspectMaskCanvas.width = width;
     inspectMaskCanvas.height = height;
+    inspectionOutlineCache.ready = false;
     canvas.style.width = width * ART_PIXEL + "px";
     canvas.style.height = height * ART_PIXEL + "px";
     ctx.imageSmoothingEnabled = false;
@@ -4761,6 +4839,14 @@
     if (window.__mareDebug) {
       canvas.dataset.worldState = JSON.stringify(window.__mareDebug.snapshot());
     }
+    if (glossaryOpen && glossaryPosition) {
+      positionGlossary(glossaryPosition.left, glossaryPosition.top, false);
+    }
+  }
+
+  function scheduleResize() {
+    if (resizeRequest) return;
+    resizeRequest = window.requestAnimationFrame(resize);
   }
 
   function setMode(nextMode) {
@@ -4807,10 +4893,17 @@
       output.textContent = (name === "density" ? nextValue.toFixed(2).replace(/0$/, "") : nextValue.toFixed(1)) + "×";
     }
     var input = document.querySelector('[data-tuning="' + name + '"]');
-    if (input && Number(input.value) !== nextValue) input.value = String(nextValue);
+    if (input) {
+      if (Number(input.value) !== nextValue) input.value = String(nextValue);
+      input.setAttribute("aria-valuetext", output ? output.textContent : String(nextValue));
+    }
   }
 
   function showInterface() {
+    if (screensaverMode) {
+      shell.classList.add("ui-hidden");
+      return;
+    }
     shell.classList.remove("ui-hidden");
     window.clearTimeout(uiTimer);
     uiTimer = window.setTimeout(function () {
@@ -4867,13 +4960,29 @@
   }
 
   function render(now) {
+    frameRequest = 0;
     var dt = Math.min(0.05, Math.max(0.001, (now - lastFrame) / 1000));
     lastFrame = now;
-    var time = (now - started) / 1000;
-    drawWorld(time, dt);
-    drawInspectionOutline(time);
-    updateInspector(time);
-    requestAnimationFrame(render);
+    simulationTime += dt;
+    drawWorld(simulationTime, dt);
+    drawInspectionOutline(simulationTime);
+    updateInspector(simulationTime);
+    scheduleFrame();
+  }
+
+  function scheduleFrame() {
+    if (frameRequest || document.hidden) return;
+    frameRequest = window.requestAnimationFrame(render);
+  }
+
+  function pauseRendering() {
+    if (frameRequest) window.cancelAnimationFrame(frameRequest);
+    frameRequest = 0;
+  }
+
+  function resumeRendering() {
+    lastFrame = performance.now();
+    scheduleFrame();
   }
 
   if (glossaryToggle) {
@@ -4897,6 +5006,12 @@
       showInterface();
     });
   }
+  if (glossaryHeader) {
+    glossaryHeader.addEventListener("pointerdown", beginGlossaryDrag);
+    glossaryHeader.addEventListener("pointermove", moveGlossary);
+    glossaryHeader.addEventListener("pointerup", endGlossaryDrag);
+    glossaryHeader.addEventListener("pointercancel", endGlossaryDrag);
+  }
   var glossaryClose = document.querySelector("[data-glossary-close]");
   if (glossaryClose) {
     glossaryClose.addEventListener("click", function () {
@@ -4914,20 +5029,28 @@
 
   document.querySelectorAll("[data-tuning]").forEach(function (input) {
     input.addEventListener("input", function () {
+      if (screensaverMode) return;
       setTuning(input.dataset.tuning, input.value);
       showInterface();
     });
   });
 
   window.addEventListener("keydown", function (event) {
+    if (screensaverMode) return;
     var key = event.key.toUpperCase();
-    var editable = event.target && event.target.matches && event.target.matches("input, textarea, select");
-    if (event.key === "Control" && !editable) {
+    var interactive = event.target && event.target.closest &&
+      event.target.closest("input, textarea, select, button, [contenteditable='true'], [role='button']");
+    if (welcome && !welcome.hidden && key === "TAB") {
+      event.preventDefault();
+      if (welcomeEnter) welcomeEnter.focus({ preventScroll: true });
+      return;
+    }
+    if (event.key === "Control" && !interactive) {
       inspectHeld = true;
       shell.classList.add("is-inspecting");
       showInterface();
     }
-    if (key === "G" && !editable && !event.repeat) {
+    if (key === "G" && !interactive && !event.repeat) {
       setGlossaryOpen(!glossaryOpen);
       event.preventDefault();
     }
@@ -4938,11 +5061,10 @@
       setGlossaryOpen(false);
       if (glossaryToggle) glossaryToggle.focus({ preventScroll: true });
     }
-    if (key === "A" || key === "B" || key === "C") setMode(key);
-    if (key === "F") document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
-    if (key === "H") shell.classList.toggle("ui-hidden");
-    if (key === "D") debugFlow = !debugFlow;
-    if (key === "S") environment.forcedStorm = 12;
+    if (!interactive && (key === "A" || key === "B" || key === "C")) setMode(key);
+    if (!interactive && key === "F") document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+    if (!interactive && key === "H") shell.classList.toggle("ui-hidden");
+    if (!interactive && key === "S") environment.forcedStorm = 12;
   });
   window.addEventListener("keyup", function (event) {
     if (event.key !== "Control") return;
@@ -4957,12 +5079,52 @@
     shell.classList.remove("is-inspecting");
     hideInspector();
   });
+  function clearTouchInspection() {
+    var wasTouchLatched = touchInspectLatched;
+    window.clearTimeout(touchInspectTimer);
+    window.clearTimeout(touchInspectReleaseTimer);
+    touchInspectTimer = 0;
+    touchInspectReleaseTimer = 0;
+    touchInspectLatched = false;
+    if (wasTouchLatched) inspectHeld = false;
+    touchInspectStart = null;
+    if (!inspectHeld) shell.classList.remove("is-inspecting");
+    hideInspector();
+  }
   canvas.addEventListener("pointerdown", function (event) {
+    if (screensaverMode) return;
+    if (event.pointerType !== "mouse") {
+      if (touchInspectLatched) {
+        inspectHeld = false;
+        clearTouchInspection();
+        return;
+      }
+      trackPointer(event);
+      touchInspectStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+      window.clearTimeout(touchInspectTimer);
+      touchInspectTimer = window.setTimeout(function () {
+        touchInspectLatched = true;
+        inspectHeld = true;
+        pointer.down = false;
+        shell.classList.add("is-inspecting");
+        showInterface();
+      }, 520);
+    }
     pointer.down = true;
     canvas.setPointerCapture && canvas.setPointerCapture(event.pointerId);
     stirWater(event, true);
   });
   canvas.addEventListener("pointermove", function (event) {
+    if (screensaverMode) return;
+    if (touchInspectStart && !touchInspectLatched) {
+      var touchDx = event.clientX - touchInspectStart.x;
+      var touchDy = event.clientY - touchInspectStart.y;
+      if (touchDx * touchDx + touchDy * touchDy > 64) {
+        window.clearTimeout(touchInspectTimer);
+        touchInspectTimer = 0;
+        touchInspectStart = null;
+      }
+    }
     if (event.ctrlKey && !inspectHeld) {
       inspectHeld = true;
       shell.classList.add("is-inspecting");
@@ -4971,6 +5133,7 @@
     else trackPointer(event);
   });
   canvas.addEventListener("pointerenter", function (event) {
+    if (screensaverMode) return;
     trackPointer(event);
   });
   canvas.addEventListener("pointerleave", function () {
@@ -4978,18 +5141,32 @@
     pointer.inside = false;
     hideInspector();
   });
-  canvas.addEventListener("pointerup", function () {
+  canvas.addEventListener("pointerup", function (event) {
     pointer.down = false;
+    window.clearTimeout(touchInspectTimer);
+    touchInspectTimer = 0;
+    touchInspectStart = null;
+    if (touchInspectLatched && event.pointerType !== "mouse") {
+      touchInspectReleaseTimer = window.setTimeout(clearTouchInspection, 5000);
+    }
   });
   canvas.addEventListener("pointercancel", function () {
     pointer.down = false;
+    clearTouchInspection();
   });
-  window.addEventListener("resize", resize);
+  canvas.addEventListener("lostpointercapture", function () { pointer.down = false; });
+  window.addEventListener("resize", scheduleResize);
   window.addEventListener("pointermove", showInterface, { passive: true });
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) pauseRendering();
+    else resumeRendering();
+  });
+  window.addEventListener("pagehide", pauseRendering);
+  window.addEventListener("pageshow", resumeRendering);
 
-  window.__mareDebug = {
+  if (debugMode) window.__mareDebug = {
     identifyAt: function (x, y) {
-      var id = inspectionTargetAt(Number(x), Number(y), (performance.now() - started) / 1000);
+      var id = inspectionTargetAt(Number(x), Number(y), simulationTime);
       return id ? Object.assign({}, BESTIARY_BY_ID[id]) : null;
     },
     glossaryCount: BESTIARY.length,
@@ -5033,6 +5210,7 @@
         }
       }
       return {
+        time: simulationTime,
         viewport: [width, height],
         cameraX: cameraX,
         waterline: geometry.line,
@@ -5041,8 +5219,8 @@
         raftWorldX: screenToWorldX(raft.x),
         raul: {
           worldX: screenToWorldX(carpet.x),
-          waiting: (performance.now() - started) / 1000 < carpet.waitingUntil,
-          nextPassIn: Math.max(0, carpet.waitingUntil - (performance.now() - started) / 1000)
+          waiting: simulationTime < carpet.waitingUntil,
+          nextPassIn: Math.max(0, carpet.waitingUntil - simulationTime)
         },
         leviathanWorldX: screenToWorldX(leviathans[0].x),
         leviathanWorldXs: leviathans.map(function (leviathan) {
@@ -5050,7 +5228,7 @@
         }),
         density: visualDensity(),
         platformResidents: Array.from({ length: platformResidentCount() }, function (_, residentIndex) {
-          return Object.assign({}, platformResidentPose(residentIndex, (performance.now() - started) / 1000, geometry, {}));
+          return Object.assign({}, platformResidentPose(residentIndex, simulationTime, geometry, {}));
         }),
         swimmerCount: swimmers.length,
         swimmerSamples: swimmers.slice(0, 24).map(function (swimmer) {
@@ -5082,7 +5260,7 @@
           intensity: ecologyEvent.intensity
         } : null,
         backgroundTitan: (function () {
-          var active = activeBackgroundTitan((performance.now() - started) / 1000, geometry.line);
+          var active = activeBackgroundTitan(simulationTime, geometry.line);
           return active ? {
             type: active.encounter.type,
             x: active.state.x,
@@ -5092,7 +5270,6 @@
           } : null;
         }()),
         rain: { drops: rainDrops.length, splashes: rainSplashes.length },
-        observations: Object.assign({}, observationCounts),
         particleCount: particles.length,
         particleWorldX: particles.slice(0, 6).map(function (particle) {
           return screenToWorldX(particle.x);
@@ -5102,19 +5279,29 @@
       };
     }
   };
+  else if (Object.prototype.hasOwnProperty.call(window, "__mareDebug")) delete window.__mareDebug;
 
-  renderGlossary();
-  try {
-    if (window.localStorage.getItem("mare-glossary-pinned") === "1") setGlossaryPinned(true);
-  } catch (error) {
-    // The glossary still works without persistent storage.
+  if (!screensaverMode) {
+    renderGlossary();
+    try {
+      var storedGlossaryPosition = JSON.parse(window.localStorage.getItem("mare-glossary-position") || "null");
+      if (storedGlossaryPosition && Number.isFinite(storedGlossaryPosition.left) && Number.isFinite(storedGlossaryPosition.top)) {
+        glossaryPosition = storedGlossaryPosition;
+      }
+      if (window.localStorage.getItem("mare-glossary-pinned") === "1") setGlossaryPinned(true);
+    } catch (error) {
+      // The glossary still works without persistent storage.
+    }
   }
+  Object.keys(tuning).forEach(function (name) { setTuning(name, tuning[name]); });
   resize();
   showInterface();
-  try {
-    if (window.localStorage.getItem("mare-welcome-seen-v1") !== "1") setWelcomeOpen(true, false);
-  } catch (error) {
-    setWelcomeOpen(true, false);
+  if (!screensaverMode) {
+    try {
+      if (window.localStorage.getItem("mare-welcome-seen-v1") !== "1") setWelcomeOpen(true, false);
+    } catch (error) {
+      setWelcomeOpen(true, false);
+    }
   }
-  requestAnimationFrame(render);
+  scheduleFrame();
 }());

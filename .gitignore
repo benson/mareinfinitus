@@ -16,3 +16,5 @@ yarn-error.log*
 /output
 /.playwright-cli
 /work
+/screensaver/macos/build
+/screensaver/macos/release
