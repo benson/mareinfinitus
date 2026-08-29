@@ -3110,7 +3110,7 @@
       }
     }
     if (index === 0 && time < forcedFlashlightUntil) {
-      pose.x = geometry.left + Math.min(17, span * 0.13);
+      pose.x = geometry.left + Math.min(17, visibleSpan * 0.13);
       pose.direction = -1;
       pose.action = "flashlight";
       pose.prop = "flashlight";

@@ -134,6 +134,25 @@ function validateGlossary() {
   notes.push(`glossary ${entries.length} entries / ${ids.size} unique IDs`);
 }
 
+function validateForcedFlashlightPath() {
+  const appPath = requireFile("app.js");
+  if (!fs.existsSync(appPath)) return;
+  const source = fs.readFileSync(appPath, "utf8");
+  const poseStart = source.indexOf("function platformResidentPose(");
+  const poseEnd = source.indexOf("function updatePlatformFlashlight(", poseStart);
+  if (poseStart < 0 || poseEnd < 0) {
+    fail("Could not locate the platform resident flashlight interaction path.");
+    return;
+  }
+  const poseSource = source.slice(poseStart, poseEnd);
+  if (!/Math\.min\(17,\s*visibleSpan\s*\*\s*0\.13\)/.test(poseSource)) {
+    fail("The click-triggered platform flashlight must position its resident from the declared visibleSpan.");
+  }
+  if (/Math\.min\(17,\s*span\s*\*/.test(poseSource)) {
+    fail("The click-triggered platform flashlight still references the retired undeclared span variable.");
+  }
+}
+
 function validateManifest() {
   const manifestPath = requireFile("public/manifest.webmanifest");
   if (!fs.existsSync(manifestPath)) return;
@@ -199,6 +218,7 @@ expectPng("public/icon-512.png", 512, 512);
 expectPng("public/og.png", 1680, 944);
 validateWebPaths();
 validateGlossary();
+validateForcedFlashlightPath();
 validateManifest();
 validateNativeInputs();
 
