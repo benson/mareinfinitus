@@ -6,6 +6,7 @@
   "scripts": {
     "assets": "node scripts/generate-assets.mjs",
     "assets:check": "node scripts/generate-assets.mjs --check",
+    "assets:stamp": "node scripts/stamp-runtime-assets.mjs",
     "dev": "npx serve . -l 3000",
     "test": "node scripts/validate-release.mjs && node scripts/validate-simulation.mjs",
     "test:simulation": "node scripts/validate-simulation.mjs",

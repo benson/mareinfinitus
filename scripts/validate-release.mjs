@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import vm from "node:vm";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -73,6 +74,35 @@ function validateWebPaths() {
     const clean = decodeURIComponent(reference.split(/[?#]/, 1)[0]);
     const resolved = path.resolve(projectRoot, clean);
     if (!resolved.startsWith(`${projectRoot}${path.sep}`) || !fs.existsSync(resolved)) fail(`HTML references a missing or escaping local asset: ${reference}`);
+  }
+}
+
+function validateRuntimeAssetVersions() {
+  const htmlPath = requireFile("index.html");
+  if (!fs.existsSync(htmlPath)) return;
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const runtimeFiles = [
+    "style.css",
+    "systems/creature-variation.js",
+    "systems/ecology.js",
+    "systems/ambient-life.js",
+    "systems/light-field.js",
+    "systems/motion-engine.js",
+    "systems/world-physics.js",
+    "systems/scene-engine.js",
+    "systems/event-director.js",
+    "app.js",
+  ];
+  for (const relativePath of runtimeFiles) {
+    const absolutePath = requireFile(relativePath);
+    if (!fs.existsSync(absolutePath)) continue;
+    const expected = crypto.createHash("sha256").update(fs.readFileSync(absolutePath)).digest("hex").slice(0, 12);
+    const escapedPath = relativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = html.match(new RegExp(`(?:href|src)="${escapedPath}\\?v=([a-f0-9]{12})"`));
+    if (!match) fail(`Runtime asset ${relativePath} is missing its content-hash query in index.html.`);
+    else if (match[1] !== expected) {
+      fail(`Runtime asset ${relativePath} has stale version ${match[1]}; run npm run assets:stamp (expected ${expected}).`);
+    }
   }
 }
 
@@ -217,6 +247,7 @@ expectPng("public/icon-192.png", 192, 192);
 expectPng("public/icon-512.png", 512, 512);
 expectPng("public/og.png", 1680, 944);
 validateWebPaths();
+validateRuntimeAssetVersions();
 validateGlossary();
 validateForcedFlashlightPath();
 validateManifest();

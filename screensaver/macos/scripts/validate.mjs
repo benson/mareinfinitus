@@ -41,7 +41,8 @@ for (const reference of [...localScripts, ...localStyles, ...cssAssets]) {
   if (/^(?:https?:)?\/\//i.test(reference)) {
     throw new Error(`Runtime dependency is remote and cannot be bundled offline: ${reference}`);
   }
-  if (!fs.existsSync(path.join(projectRoot, reference))) {
+  const localPath = decodeURIComponent(reference.split(/[?#]/, 1)[0]);
+  if (!fs.existsSync(path.join(projectRoot, localPath))) {
     throw new Error(`HTML references a missing runtime asset: ${reference}`);
   }
 }
