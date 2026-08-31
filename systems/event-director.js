@@ -35,7 +35,12 @@
       cycleIndex: -1,
       localTime: 0,
       nextRareEligibleAt: 0,
-      rareSerial: 0
+      rareSerial: 0,
+      transitionSerial: 0,
+      focus: "environment",
+      cameraDriftX: 0,
+      cameraDriftY: 0,
+      breath: 0
     };
 
     function update(time, context) {
@@ -48,10 +53,12 @@
       var revealStart = 0.42 + profile * 0.12;
       var revealEnd = revealStart + 0.15 + hash(seed + cycleIndex * 13.7) * 0.09;
       var recoveryEnd = Math.min(0.92, revealEnd + 0.18);
+      var previousPhase = state.phase;
       if (local < revealStart - 0.16) state.phase = PHASES.QUIET;
       else if (local < revealStart) state.phase = PHASES.BUILD;
       else if (local < revealEnd) state.phase = PHASES.REVEAL;
       else state.phase = PHASES.RECOVERY;
+      if (state.phase !== previousPhase) state.transitionSerial += 1;
 
       var build = smoothstep(revealStart - 0.16, revealStart, local);
       var fade = 1 - smoothstep(revealEnd, recoveryEnd, local);
@@ -60,6 +67,10 @@
       state.faunaActivity = clamp(0.66 + state.intensity * 0.34 - (ctx.storm || 0) * 0.08, 0.42, 1);
       state.lightActivity = clamp(0.45 + state.intensity * 0.48 + (ctx.storm || 0) * 0.12, 0.3, 1);
       state.surfaceActivity = clamp(0.62 + state.intensity * 0.22 + (ctx.storm || 0) * 0.32, 0.5, 1.2);
+      state.focus = state.phase === PHASES.QUIET ? "environment" : state.phase === PHASES.BUILD ? "materials" : state.phase === PHASES.REVEAL ? "encounter" : "aftermath";
+      state.cameraDriftX = Math.sin(time * 0.0127 + seed) * (0.24 + state.intensity * 0.72);
+      state.cameraDriftY = Math.sin(time * 0.0091 + seed * 0.37) * (0.12 + state.intensity * 0.28);
+      state.breath = 0.5 + Math.sin(time * 0.043 + cycleIndex) * 0.5;
 
       var candidate = hash(seed + cycleIndex * 29.41) > 0.74;
       var rareWindow = local > revealStart + 0.025 && local < revealEnd - 0.025;
@@ -78,7 +89,12 @@
         lightActivity: state.lightActivity,
         surfaceActivity: state.surfaceActivity,
         rareEncounter: state.rareEncounter,
-        rareSerial: state.rareSerial
+        rareSerial: state.rareSerial,
+        transitionSerial: state.transitionSerial,
+        focus: state.focus,
+        cameraDriftX: state.cameraDriftX,
+        cameraDriftY: state.cameraDriftY,
+        breath: state.breath
       };
     }
 

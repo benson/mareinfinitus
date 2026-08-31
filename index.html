@@ -26,7 +26,7 @@
     <link rel="icon" href="public/favicon-32.png" type="image/png" sizes="32x32">
     <link rel="apple-touch-icon" href="public/apple-touch-icon.png">
     <link rel="manifest" href="public/manifest.webmanifest">
-    <link rel="stylesheet" href="style.css?v=c8cf3317cbac">
+    <link rel="stylesheet" href="style.css?v=2762e5d718ba">
     <title>Mare Infinitus — A Living Simulation</title>
   </head>
   <body>
@@ -38,17 +38,29 @@
         </div>
         <div class="control-actions">
           <button class="about-trigger" type="button" data-welcome-open><span>A</span> ABOUT</button>
+          <button class="scenes-trigger" type="button" data-scene-toggle aria-expanded="false" aria-controls="scene-picker"><span>W</span> WORLDS</button>
           <button class="settings-trigger" type="button" data-settings-toggle aria-expanded="false" aria-controls="mare-settings">
             <span>T</span> SETTINGS
           </button>
           <button class="glossary-trigger" type="button" data-glossary-toggle aria-expanded="false" aria-controls="mare-glossary">
             <span>G</span> GUIDE
           </button>
+          <button class="sound-trigger" type="button" data-sound-toggle aria-pressed="false"><span>M</span> <b>SOUND</b></button>
+          <button class="photo-trigger" type="button" data-photo-toggle aria-pressed="false"><span>P</span> PHOTO</button>
         </div>
         <small class="ui-shortcuts">
           <span class="pointer-help"><kbd>CTRL</kbd> IDENTIFY · <kbd>F</kbd> FULLSCREEN</span>
           <span class="touch-help">PRESS + HOLD TO IDENTIFY</span>
         </small>
+      </section>
+      <section class="scene-picker ui-chrome" id="scene-picker" data-scene-picker role="dialog" aria-modal="false" aria-labelledby="scene-picker-title" hidden>
+        <header class="settings-header">
+          <h1 id="scene-picker-title">Living worlds</h1>
+          <button class="settings-close" type="button" data-scene-close aria-label="Close world picker">ESC</button>
+        </header>
+        <p class="settings-section-label">CHOOSE A SCENE</p>
+        <div class="scene-list" data-scene-list></div>
+        <p class="scene-picker-note">Every world shares the same fixed-pixel simulation engine while keeping its own materials, memory, actors, and events.</p>
       </section>
       <section class="settings-panel ui-chrome" id="mare-settings" role="dialog" aria-modal="false" aria-labelledby="settings-title" hidden>
         <header class="settings-header">
@@ -106,6 +118,10 @@
         </section>
       </div>
     </main>
+    <script src="systems/scene-runtime.js?v=75a37f3d0582"></script>
+    <script src="systems/world-memory.js?v=7bd53c166da0"></script>
+    <script src="systems/soundscape.js?v=742500bc2cb4"></script>
+    <script src="systems/silhouette-library.js?v=a106f7266638"></script>
     <script src="systems/creature-variation.js?v=c4d87a5424f5"></script>
     <script src="systems/ecology.js?v=b37506b94149"></script>
     <script src="systems/ambient-life.js?v=49c90efbac0b"></script>
@@ -113,7 +129,9 @@
     <script src="systems/motion-engine.js?v=3532027c5747"></script>
     <script src="systems/world-physics.js?v=62f1f140be91"></script>
     <script src="systems/scene-engine.js?v=500239c443c7"></script>
-    <script src="systems/event-director.js?v=75cfb0aae897"></script>
-    <script src="app.js?v=c59b7f213aa8"></script>
+    <script src="systems/event-director.js?v=74e0f78d8474"></script>
+    <script src="scenes/mare-infinitus.js?v=3f44fdd6c70c"></script>
+    <script src="scenes/time-tombs.js?v=2ca4a22f72df"></script>
+    <script src="app.js?v=267cb46b21f1"></script>
   </body>
 </html>

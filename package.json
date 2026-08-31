@@ -1,6 +1,6 @@
 {
   "name": "mare-infinitus",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Step into the violet sea: a living pixel-material scene from Dan Simmons's Endymion.",
   "scripts": {
@@ -8,8 +8,9 @@
     "assets:check": "node scripts/generate-assets.mjs --check",
     "assets:stamp": "node scripts/stamp-runtime-assets.mjs",
     "dev": "npx serve . -l 3000",
-    "test": "node scripts/validate-release.mjs && node scripts/validate-simulation.mjs",
+    "test": "node scripts/validate-release.mjs && node scripts/validate-simulation.mjs && node scripts/validate-scenes.mjs",
     "test:simulation": "node scripts/validate-simulation.mjs",
+    "test:scenes": "node scripts/validate-scenes.mjs",
     "validate": "node scripts/validate-release.mjs"
   }
 }

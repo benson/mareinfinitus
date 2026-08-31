@@ -8,6 +8,10 @@ const projectRoot = path.resolve(scriptDir, "..");
 const htmlPath = path.join(projectRoot, "index.html");
 const runtimeFiles = [
   "style.css",
+  "systems/scene-runtime.js",
+  "systems/world-memory.js",
+  "systems/soundscape.js",
+  "systems/silhouette-library.js",
   "systems/creature-variation.js",
   "systems/ecology.js",
   "systems/ambient-life.js",
@@ -16,6 +20,8 @@ const runtimeFiles = [
   "systems/world-physics.js",
   "systems/scene-engine.js",
   "systems/event-director.js",
+  "scenes/mare-infinitus.js",
+  "scenes/time-tombs.js",
   "app.js",
 ];
 

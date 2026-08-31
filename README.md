@@ -8,6 +8,8 @@ wider camera rather than a magnifying glass.
 
 **Live:** [bensonperry.com/mareinfinitus](https://bensonperry.com/mareinfinitus/)
 
+**Second scene:** [The Time Tombs](https://bensonperry.com/mareinfinitus/?scene=time-tombs)
+
 **Screensaver downloads:** [Windows and macOS release archives](https://github.com/benson/mareinfinitus/releases)
 
 The station design follows the books: a large, multitiered fishing platform on
@@ -24,12 +26,15 @@ Then open `http://localhost:3000/`.
 
 ## Controls
 
+- `W`: choose a living world without leaving the simulator
 - `T`: open or close the compact settings panel in the bottom-right corner
 - ecosystem-density slider: continuously blends from sparse through balanced to teeming while preserving the same palette and object opacity
 - `A`: open the About introduction
 - drag through the ocean: inject momentum and suspended material
 - `F`: fullscreen
 - `H`: hide or show the interface
+- `M`: enable or mute the optional procedural soundscape (sound never autoplays)
+- `P`: enter photo mode; press `C` to save the clean canvas and `P` or `Escape` to leave
 - hold `Control` and hover: identify the creature, traveler, structure, or material beneath the pointer and trace its visible pixel silhouette
 - `G`: open or close the bestiary and glossary; every entry has a stable `MI-##` feedback code and can be clicked to copy its label
 - `PIN` in the glossary: keep the field index open across reloads; hovering an entry outlines every visible instance of that category
@@ -55,6 +60,28 @@ Then open `http://localhost:3000/`.
 - a slowly setting moon that passes behind the ocean horizon and cycles back only while off-screen
 - a world-anchored cellular storm front with advected rain and raster lightning
 - platform rooms, workers, fishers, guards, cranes, doors, fishing lines, and beacons that react to the raft, Raul, storms, structural stress, and nearby large animals
+- persistent world memory: weathering, disturbance, vitality, quiet periods, and rare encounters decay over real time instead of resetting into an identical loop on every visit
+- a shared cinematic director that paces quiet, material build, reveal, and aftermath across long cycles
+
+## The Time Tombs
+
+The first independent scene pack proves that the simulation is not an ocean
+reskin engine. Open `?scene=time-tombs` or choose **WORLDS** in the interface.
+It has its own fixed-pixel renderer, palette, persistent memory, settings,
+field guide, and interaction model:
+
+- six authored monuments: the Shrike Palace, three Cave Tombs, Crystal
+  Monolith, Obelisk, Jade Tomb, and Sphinx
+- a world-anchored aeolian field for windblown dust, dune grains, grass, and
+  storm bands
+- anti-entropic time tides, duplicated footsteps, and traveler echoes
+- long-form reveal pacing with an exceptionally rare, discontinuously moving
+  Shrike presence
+- pointer-driven sand disturbances that linger and feed the scene's memory
+
+The monument order and field-guide descriptions were checked against Benson's
+local four-book *Hyperion Cantos* edition. Short excerpts remain identified as
+book text; the connective material is clearly labeled as simulation.
 
 ## Raster/world contract
 
@@ -141,14 +168,19 @@ test artifacts without creating a release.
 npm test
 ```
 
-The validator syntax-checks every script, checks the 33-entry field guide for
+The validator syntax-checks every script, checks the 33-entry Mare field guide for
 duplicate IDs and retired debug copy, verifies subpath-safe metadata and exact
-asset dimensions, regenerates the icon set deterministically, and validates the
-native packaging inputs.
+asset dimensions, regenerates the icon set deterministically, validates native
+packaging inputs, and stress-tests both registered scenes for 48 simulated hours.
 
 ## Project structure
 
-- `app.js` — world state, fluid surface, raster drawing, interaction, field index, and scene composition
+- `app.js` — the mature Mare Infinitus renderer and its scene-specific interaction layer
+- `scenes/` — registered scene packs; Time Tombs owns a complete independent renderer while Mare preserves its established composition
+- `systems/scene-runtime.js` — scene registry, navigation, shared sound/photo controls, and active-scene lifecycle
+- `systems/world-memory.js` — namespaced persistent state with real-time decay and slow environmental consequences
+- `systems/soundscape.js` — optional, gesture-gated procedural ambience
+- `systems/silhouette-library.js` — authored pixel masks shared by scene renderers
 - `systems/creature-variation.js` — restrained, deterministic species body plans and animation cadence
 - `systems/ecology.js` — behaviors, food relationships, schooling, and long-running ecological events
 - `systems/ambient-life.js` — platform residents, room lighting, weather reactions, and background activity
@@ -160,6 +192,8 @@ native packaging inputs.
 
 The coupling and stability contracts are documented in
 [`docs/SIMULATION.md`](docs/SIMULATION.md).
+The scene-pack contract and expansion workflow are documented in
+[`docs/SCENE-PACKS.md`](docs/SCENE-PACKS.md).
 
 - `public/` — favicon and social preview artwork
 - `screensaver/windows/` — native Win32/WebView2 `.scr`, installer, and release build

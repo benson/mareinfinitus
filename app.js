@@ -16,6 +16,19 @@
   var runtimeParams = new URLSearchParams(window.location.search);
   var screensaverMode = runtimeParams.get("screensaver") === "1";
   var debugMode = runtimeParams.get("debug") === "1";
+  var livingRuntime = window.LivingSceneRuntime || null;
+  if (livingRuntime) livingRuntime.bindChrome();
+  var activeScenePack = livingRuntime ? livingRuntime.active() : null;
+  if (activeScenePack && activeScenePack.id !== "mare-infinitus" && typeof activeScenePack.mount === "function") {
+    activeScenePack.mount({
+      canvas: document.querySelector(".mare-canvas"),
+      shell: document.querySelector(".mare-shell"),
+      screensaverMode: screensaverMode,
+      debugMode: debugMode,
+      runtime: livingRuntime
+    });
+    return;
+  }
 
   var PALETTES = {
     A: {
@@ -66,6 +79,9 @@
   var worldPhysics = WorldPhysics ? WorldPhysics.create({ cellSize: 28 }) : null;
   var materialField = SceneEngine ? SceneEngine.createMaterialField({ cellSize: 10 }) : null;
   var sceneDirector = DirectorEngine ? DirectorEngine.create({ seed: 326.73, cycleSeconds: 148 }) : null;
+  var worldMemory = window.LivingWorldMemory ? window.LivingWorldMemory.create({ id: "mare-infinitus" }) : null;
+  var worldMemoryInfluence = worldMemory ? worldMemory.influence() : { weathering: 0, disturbance: 0, vitality: 0.5, quiet: 0.5, encounterEcho: 0 };
+  var memoryRareWasActive = false;
   var directorState = null;
   var worldSense = {};
   var motionPose = {};
@@ -1550,7 +1566,7 @@
       Math.max(0, availableDepth - FIXED_DARK_DEPTH) * 0.12;
     var count = Math.min(
       1600,
-      Math.floor(width * weightedDepth / 210 * tuning.seaLife * visualDensity())
+      Math.floor(width * weightedDepth / 210 * tuning.seaLife * visualDensity() * (0.86 + (worldMemoryInfluence ? worldMemoryInfluence.vitality : 0.5) * 0.28))
     );
     particles = [];
     for (var i = 0; i < count; i += 1) {
@@ -3396,7 +3412,8 @@
     structure.sway = clamp(structure.sway + structure.swayVelocity * dt, -3.2, 3.2);
 
     var occupancyLoad = 0.22 + Math.sin(performance.now() * 0.00007) * 0.03;
-    var targetSag = 0.35 + occupancyLoad + environment.storm * 0.8 + (1 - structure.integrity) * 1.8;
+    var inheritedWeathering = worldMemoryInfluence ? worldMemoryInfluence.weathering : 0;
+    var targetSag = 0.35 + occupancyLoad + environment.storm * 0.8 + (1 - structure.integrity) * 1.8 + inheritedWeathering * 0.12;
     structure.sagVelocity += (targetSag - structure.sag) * dt * 1.2 - structure.sagVelocity * dt * 1.6;
     structure.sag = clamp(structure.sag + structure.sagVelocity * dt, 0, 2.8);
     structure.stress = clamp(
@@ -5566,6 +5583,21 @@
         colossalVisible: !!activeColossalEncounter(time, geometry.line)
       });
     }
+    var memoryRareActive = !!(directorState && directorState.rareEncounter) || !!activeColossalEncounter(time, geometry.line);
+    if (worldMemory) {
+      worldMemoryInfluence = worldMemory.update(dt, {
+        storm: environment.storm,
+        activity: clamp(swimmers.length / Math.max(1, width / 8), 0, 1),
+        disturbance: clamp(pointer.down ? 0.72 : structure.stress * 0.12, 0, 1)
+      });
+      if (memoryRareActive && !memoryRareWasActive) worldMemory.observe("deep-encounter", directorState ? directorState.intensity : 0.7);
+      memoryRareWasActive = memoryRareActive;
+    }
+    if (livingRuntime) livingRuntime.updateAudio({
+      storm: environment.storm,
+      activity: clamp(Math.abs(environment.wind) * 0.32 + tuning.waveEnergy * 0.18, 0, 1),
+      mystery: clamp((directorState ? directorState.intensity : 0) * 0.75 + (worldMemoryInfluence ? worldMemoryInfluence.encounterEcho : 0) * 0.25, 0, 1)
+    });
     updateSurface(dt, time);
     updateRain(dt, time, geometry);
     updateRaft(dt, time, geometry.line);
@@ -6319,6 +6351,7 @@
           director: DirectorEngine ? DirectorEngine.version : null
         },
         director: sceneDirector ? sceneDirector.snapshot() : null,
+        memory: worldMemory ? worldMemory.snapshot() : null,
         platformResidents: Array.from({ length: platformResidentCount() }, function (_, residentIndex) {
           return Object.assign({}, platformResidentPose(residentIndex, simulationTime, geometry, {}));
         }),

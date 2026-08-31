@@ -24,3 +24,9 @@ white lines.
 During active visual iteration, keep changes local. Do not commit, push, or
 deploy each pass; publish only when Benson explicitly asks to ship the current
 iteration.
+
+New worlds must register through `systems/scene-runtime.js` and live under
+`scenes/`; do not fork the repository or duplicate the shell. Keep material,
+actor, landmark, event, lore, presentation, and persistence concerns inside the
+scene pack. Shared systems may define behavior contracts, but important visual
+silhouettes must remain authored rather than assembled from random rectangles.

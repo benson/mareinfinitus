@@ -62,6 +62,7 @@ Copy-Item -LiteralPath (Join-Path $projectRoot "index.html") -Destination $webRo
 Copy-Item -LiteralPath (Join-Path $projectRoot "style.css") -Destination $webRoot -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "app.js") -Destination $webRoot -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "systems") -Destination $webRoot -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot "scenes") -Destination $webRoot -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "public") -Destination $webRoot -Recurse -Force
 
 $resourceObject = Join-Path $buildRoot "version.res"

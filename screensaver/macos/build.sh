@@ -22,6 +22,12 @@ required_assets=(
   "systems/world-physics.js"
   "systems/scene-engine.js"
   "systems/event-director.js"
+  "systems/scene-runtime.js"
+  "systems/world-memory.js"
+  "systems/soundscape.js"
+  "systems/silhouette-library.js"
+  "scenes/mare-infinitus.js"
+  "scenes/time-tombs.js"
 )
 
 for asset in "${required_assets[@]}"; do
@@ -42,6 +48,7 @@ mkdir -p "$CONTENTS/MacOS" "$WEB"
 cp "$SCRIPT_DIR/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp "$PROJECT_ROOT/index.html" "$PROJECT_ROOT/style.css" "$PROJECT_ROOT/app.js" "$WEB/"
 ditto "$PROJECT_ROOT/systems" "$WEB/systems"
+ditto "$PROJECT_ROOT/scenes" "$WEB/scenes"
 if [[ -d "$PROJECT_ROOT/public" ]]; then
   ditto "$PROJECT_ROOT/public" "$WEB/public"
 fi

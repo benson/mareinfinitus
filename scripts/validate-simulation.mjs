@@ -4,16 +4,22 @@ await import("../systems/motion-engine.js");
 await import("../systems/world-physics.js");
 await import("../systems/scene-engine.js");
 await import("../systems/event-director.js");
+await import("../systems/world-memory.js");
+await import("../systems/silhouette-library.js");
 
 const Motion = globalThis.MareMotion;
 const World = globalThis.MareWorldPhysics;
 const Scene = globalThis.MareScene;
 const Director = globalThis.MareDirector;
+const Memory = globalThis.LivingWorldMemory;
+const Silhouettes = globalThis.LivingSilhouettes;
 
 assert.ok(Motion?.selfCheck(), "motion-engine self check failed");
 assert.ok(World?.create().selfCheck(), "world-physics self check failed");
 assert.ok(Scene?.selfCheck(), "scene-engine self check failed");
 assert.ok(Director?.create().selfCheck(), "event-director self check failed");
+assert.ok(Memory?.selfCheck(), "world-memory self check failed");
+assert.ok(Silhouettes?.selfCheck(), "silhouette-library self check failed");
 
 const simulatedSeconds = 12 * 60;
 const dt = 1 / 60;
