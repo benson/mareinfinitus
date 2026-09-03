@@ -14,6 +14,12 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build:web
+      - run: npm test
       - name: Build Windows screensaver
         shell: pwsh
         run: ./screensaver/windows/build.ps1 -Architecture x64 -Clean
@@ -27,8 +33,14 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build:web
+      - run: npm test
       - name: Build universal macOS screensaver
-        run: bash screensaver/macos/build.sh
+        run: SCENE=time-tombs bash screensaver/macos/build.sh
       - name: Package ad-hoc signed test build
         run: |
           mkdir -p screensaver/macos/release

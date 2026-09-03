@@ -112,6 +112,23 @@ function validateRuntimeAssetVersions() {
   }
 }
 
+function validateDynamicRuntimeAssetVersions() {
+  const entries = [
+    { importer: "scenes/time-tombs.js", relativePath: "dist/time-tombs/time-tombs.js", referencePath: "../dist/time-tombs/time-tombs.js" },
+  ];
+  for (const entry of entries) {
+    const importerPath = requireFile(entry.importer);
+    const assetPath = requireFile(entry.relativePath);
+    if (!fs.existsSync(importerPath) || !fs.existsSync(assetPath)) continue;
+    const importer = fs.readFileSync(importerPath, "utf8");
+    const expected = crypto.createHash("sha256").update(fs.readFileSync(assetPath)).digest("hex").slice(0, 12);
+    const escapedPath = (entry.referencePath || entry.relativePath).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = importer.match(new RegExp(`${escapedPath}\\?v=([a-f0-9]{12})`));
+    if (!match) fail(`Dynamic runtime asset ${entry.relativePath} is missing its content hash in ${entry.importer}.`);
+    else if (match[1] !== expected) fail(`Dynamic runtime asset ${entry.relativePath} has stale version ${match[1]}; run npm run assets:stamp (expected ${expected}).`);
+  }
+}
+
 function parseBestiary(source) {
   const startMarker = "var BESTIARY =";
   const endMarker = "var BESTIARY_BY_ID";
@@ -227,7 +244,7 @@ function validateNativeInputs() {
     .filter((file) => path.basename(file).toLowerCase() === "index.html" && /[\\/](?:build|dist|release|publish)[\\/]/i.test(file))
     .map((file) => path.dirname(file));
   for (const webRoot of bundledWebRoots) {
-    for (const asset of ["index.html", "style.css", "app.js", "systems/scene-runtime.js", "systems/world-memory.js", "systems/soundscape.js", "systems/silhouette-library.js", "systems/creature-variation.js", "systems/ecology.js", "systems/ambient-life.js", "systems/light-field.js", "systems/motion-engine.js", "systems/world-physics.js", "systems/scene-engine.js", "systems/event-director.js", "scenes/mare-infinitus.js", "scenes/time-tombs.js"]) {
+    for (const asset of ["index.html", "style.css", "app.js", "systems/scene-runtime.js", "systems/world-memory.js", "systems/soundscape.js", "systems/silhouette-library.js", "systems/creature-variation.js", "systems/ecology.js", "systems/ambient-life.js", "systems/light-field.js", "systems/motion-engine.js", "systems/world-physics.js", "systems/scene-engine.js", "systems/event-director.js", "dist/time-tombs/time-tombs.js", "scenes/mare-infinitus.js", "scenes/time-tombs.js"]) {
       if (!fs.existsSync(path.join(webRoot, asset))) fail(`Native web bundle ${relative(webRoot)} is missing ${asset}.`);
     }
     const html = fs.readFileSync(path.join(webRoot, "index.html"), "utf8");
@@ -254,6 +271,7 @@ expectPng("public/icon-512.png", 512, 512);
 expectPng("public/og.png", 1680, 944);
 validateWebPaths();
 validateRuntimeAssetVersions();
+validateDynamicRuntimeAssetVersions();
 validateGlossary();
 validateForcedFlashlightPath();
 validateManifest();

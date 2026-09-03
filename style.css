@@ -325,6 +325,44 @@ kbd {
   pointer-events: none;
 }
 
+.time-tombs-runtime .inspection-tooltip {
+  top: 0;
+  left: 0;
+  contain: layout paint style;
+  will-change: transform;
+  width: min(480px, calc(100vw - 24px));
+}
+
+.time-tombs-runtime .glossary-entry {
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 7px 9px;
+  padding: 14px 8px;
+  cursor: default;
+}
+.time-tombs-runtime .glossary-entry .entry-name { font-size: 14px; }
+.time-tombs-runtime .glossary-entry .entry-summary {
+  grid-column: 2;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.time-tombs-runtime .tomb-book-excerpt {
+  grid-column: 1 / -1;
+  padding: 8px 10px;
+  border-left: 2px solid rgb(255 195 90 / 35%);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+.time-tombs-runtime [data-inspection-excerpt] { white-space: pre-line; }
+.time-tombs-runtime .tomb-book-source {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  font-style: normal;
+}
+
 .inspection-tooltip::before {
   position: absolute;
   top: -5px;
@@ -358,6 +396,27 @@ kbd {
   color: var(--muted);
   font-size: 10px;
   line-height: 1.5;
+}
+
+.inspection-tooltip q {
+  display: block;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+  color: rgb(232 221 255 / 82%);
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.45;
+}
+
+.inspection-tooltip cite {
+  display: block;
+  margin-top: 5px;
+  color: var(--accent);
+  font-size: 8px;
+  font-style: normal;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 
 .glossary-panel {
@@ -747,3 +806,6 @@ input[type="range"]:focus-visible {
   .glossary-pin,
   .glossary-entry { transition: none; }
 }
+.time-tombs-runtime .tombs-fullscreen { appearance:none; border:0; padding:0; color:inherit; background:transparent; font:inherit; cursor:pointer; }
+.time-tombs-runtime .tombs-fullscreen:focus-visible { outline:1px solid currentColor; outline-offset:3px; }
+.time-tombs-runtime .sr-only { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

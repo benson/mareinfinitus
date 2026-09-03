@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-  [switch]$SetAsDefault
+  [switch]$SetAsDefault,
+  [ValidateSet('mare-infinitus', 'time-tombs')]
+  [string]$Scene = 'time-tombs'
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,15 +14,30 @@ if (-not (Test-Path -LiteralPath $sourceScreenSaver)) {
 
 $installRoot = Join-Path $env:LOCALAPPDATA "Mare Infinitus Screensaver"
 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+$sourceWebRoot = Join-Path $packageRoot "web"
+foreach ($required in @("index.html", "dist\time-tombs\time-tombs.js")) {
+  if (-not (Test-Path -LiteralPath (Join-Path $sourceWebRoot $required))) { throw "Incomplete offline package: $required" }
+}
+$installRoot = [IO.Path]::GetFullPath($installRoot)
+$backupRoot = Join-Path $installRoot ("previous-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $backupRoot | Out-Null
+foreach ($name in @("MareInfinitus.scr", "scene.txt")) {
+  $existing = Join-Path $installRoot $name
+  if (Test-Path -LiteralPath $existing) { Copy-Item -LiteralPath $existing -Destination $backupRoot }
+}
 Copy-Item -LiteralPath $sourceScreenSaver -Destination $installRoot -Force
 $installedWebRoot = Join-Path $installRoot "web"
 if (Test-Path -LiteralPath $installedWebRoot) {
-  Remove-Item -LiteralPath $installedWebRoot -Recurse -Force
+  $resolvedWeb = (Resolve-Path -LiteralPath $installedWebRoot).Path
+  if ($resolvedWeb -ne (Join-Path $installRoot "web")) { throw "Refusing unexpected web target: $resolvedWeb" }
+  Move-Item -LiteralPath $resolvedWeb -Destination (Join-Path $backupRoot "web")
 }
 Copy-Item -LiteralPath (Join-Path $packageRoot "web") -Destination $installRoot -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $packageRoot "Uninstall-MareInfinitus.ps1") -Destination $installRoot -Force
 
+Set-Content -LiteralPath (Join-Path $installRoot "scene.txt") -Value $Scene -Encoding ascii
 $installedScreenSaver = Join-Path $installRoot "MareInfinitus.scr"
+Write-Host "Scene: $Scene. Previous installation preserved at: $backupRoot"
 if ($SetAsDefault) {
   $desktopKey = "HKCU:\Control Panel\Desktop"
   Set-ItemProperty -Path $desktopKey -Name "SCRNSAVE.EXE" -Value $installedScreenSaver

@@ -1,0 +1,68 @@
+// Run through playwright-cli on /?scene=time-tombs&debug=1.
+async page=>{
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.reload();await page.waitForFunction(()=>window.__timeTombs?.activity);
+  await page.evaluate(()=>window.__timeTombs.pause(true));
+  await page.setViewportSize({width:2880,height:1300});await page.keyboard.press('Home');
+  const at=async t=>{await page.evaluate(t=>{const d=window.__timeTombs;d.advance(Math.max(0,t-d.snapshot().time));},t);await page.waitForTimeout(60);};
+  const activity=()=>page.evaluate(()=>window.__timeTombs.activity());
+  const point=async id=>page.evaluate(id=>{
+    const d=window.__timeTombs,s=d.snapshot(),v=s.viewport,z=s.pixelScale,r=s.subjects.find(s=>s.id===id);
+    for(let y=r.y;y<r.y+r.height;y++)for(let x=r.x;x<r.x+r.width;x++)if(d.identify(x,y)===id)return {x:v.x+(x-v.worldX)*z+2,y:v.y+(y-v.worldY)*z+2,wx:x,wy:y};
+    return null;
+  },id);
+  const first=await activity();if(first.audio.state!=='uninitialized'||first.audio.enabled)throw Error('Audio is not opt-in');
+  await at(8);const social=(await activity()).social;
+  if(!social||social.name!=='care-and-watch'||social.stage!=='exchange')throw Error('First paired scene missing');
+  await page.screenshot({path:'output/playwright/time-tombs-life-social.png'});
+  const crystal=await point('TT-03');await page.mouse.move(crystal.x,crystal.y);await page.keyboard.down('Control');
+  await page.waitForFunction(()=>document.querySelector('[data-inspection-excerpt]').textContent.includes('Crystal Monolith'));
+  await page.keyboard.up('Control');await page.mouse.click(crystal.x,crystal.y);
+  if(!(await activity()).responses.includes('crystal'))throw Error('Tomb ignored click');
+  await at(12);if((await activity()).lights.find(l=>l.key==='crystal').alpha<.7)throw Error('Tomb response missing');
+  await at(25);const chore=(await activity()).chore;
+  if(chore?.name!=='warm-hands'||chore.stage!=='work')throw Error('Camp errand did not reach the fire');
+  if((await activity()).responses.length)throw Error('Tomb response did not expire');
+  await page.screenshot({path:'output/playwright/time-tombs-life-camp.png'});
+  await at(50);const glimpse=(await activity()).shrike;
+  if(!glimpse.active||glimpse.alpha<.75)throw Error('Missing readable encounter');
+  const hit=await point('TT-31');if(!hit)throw Error('Encounter cannot be inspected');
+  await page.screenshot({path:'output/playwright/time-tombs-life-shrike.png'});
+  await page.mouse.move(hit.x,hit.y);await page.keyboard.down('Control');
+  await page.waitForFunction(()=>window.__timeTombs.snapshot().hovered==='TT-31');await page.keyboard.up('Control');
+  await at(54);if((await activity()).tide.stage!=='forewarning')throw Error('Missing forewarning');
+  const instruments=await page.evaluate(()=>window.__timeTombs.snapshot().subjects.filter(s=>s.id==='TT-29').map(s=>s.key));
+  if(instruments.every(s=>s.endsWith('-0')))throw Error('Instruments ignored warning');
+  await page.keyboard.press('m');await page.waitForFunction(()=>window.__timeTombs.activity().audio.enabled);
+  // Advance slightly to update the mix on the simulation clock.
+  await at(54.2);const sound=(await activity()).audio;
+  if(sound.state!=='running'||sound.voices!==7||!sound.mix)throw Error('Spatial audio failed to start');
+  await page.mouse.move(1300,900);await page.mouse.down();await page.mouse.move(2200,900,{steps:8});await page.mouse.up();
+  await at(54.5);const movedSound=(await activity()).audio;
+  if(movedSound.mix.fire.pan===sound.mix.fire.pan)throw Error('Audio did not follow camera');
+  await page.keyboard.press('m');await page.waitForFunction(()=>window.__timeTombs.activity().audio.silent);
+  await page.keyboard.press('Home');
+  await at(65);if((await activity()).tide.stage!=='crossing')throw Error('Missing tide');
+  await page.screenshot({path:'output/playwright/time-tombs-life-tide.png'});
+  if(await page.evaluate(p=>window.__timeTombs.identify(p.wx,p.wy)==='TT-31',hit))throw Error('Invisible encounter still owns hover');
+  await at(70);const craft=await point('TT-33');if(!craft)throw Error('Skimmer cannot be inspected');
+  await page.mouse.move(craft.x,craft.y);await page.keyboard.down('Control');
+  await page.waitForFunction(()=>window.__timeTombs.snapshot().hovered==='TT-33');
+  if(!(await page.locator('[data-inspection-excerpt]').textContent()).includes('gold geodesic'))throw Error('Skimmer source passage missing');
+  await page.screenshot({path:'output/playwright/time-tombs-skimmer.png'});
+  await page.keyboard.up('Control');await page.mouse.click(craft.x,craft.y);await at(70.1);
+  if(!(await page.evaluate(()=>window.__timeTombs.snapshot().subjects.find(s=>s.id==='TT-33').key)).match(/skimmer-[23]/))throw Error('Theo ignored greeting');
+  await at(78);if((await activity()).tide.stage!=='settling')throw Error('Missing settling');
+  await page.keyboard.press('g');await page.locator('#mare-glossary').waitFor({state:'visible'});
+  if(await page.locator('.tomb-book-excerpt').count()!==29||await page.locator('.tomb-book-source').count()!==29)throw Error('Missing context passages or attribution');
+  const quotes=await page.locator('.tomb-book-excerpt').allTextContents();
+  if(quotes.some(q=>q.split(/\s+/).length<45))throw Error('Guide reverted to isolated mentions');
+  await page.screenshot({path:'output/playwright/time-tombs-life-quotes.png'});await page.keyboard.press('Escape');
+  const before=await page.evaluate(()=>window.__timeTombs.snapshot());
+  await page.setViewportSize({width:1120,height:800});await page.waitForTimeout(60);
+  const after=await page.evaluate(()=>window.__timeTombs.snapshot());
+  if(after.pixelScale!==4||after.time!==before.time||after.textureCount!==before.textureCount)throw Error('Resize changed simulation');
+  if(errors.length)throw Error(errors.join('\n'));
+  await page.evaluate(()=>window.__timeTombs.pause(false));
+  return {pairedVignette:'passed',campErrand:'passed',tombResponse:'passed',bookExcerpts:'29 context passages',skimmerHoverAndGreeting:'passed',tideSequence:'passed',optInSpatialAudio:'passed',shrikeHoverAndExpiry:'passed',resize:'passed',pageErrors:errors};
+}

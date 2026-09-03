@@ -16,9 +16,16 @@ $packageRoot = Join-Path $dependencyRoot "Microsoft.Web.WebView2.$WebView2Versio
 $publishRoot = Join-Path $screenSaverRoot "publish"
 $releaseRoot = Join-Path $screenSaverRoot "release"
 
+function Assert-BuildChild([string]$Target) {
+  $full = [IO.Path]::GetFullPath($Target)
+  $allowed = [IO.Path]::GetFullPath($screenSaverRoot) + [IO.Path]::DirectorySeparatorChar
+  if (-not $full.StartsWith($allowed, [StringComparison]::OrdinalIgnoreCase)) { throw "Build target escapes screensaver directory: $full" }
+}
+if (-not (Test-Path -LiteralPath (Join-Path $projectRoot "dist\time-tombs\time-tombs.js"))) { throw "Run npm ci and npm run build:web before packaging." }
 if ($Clean) {
   foreach ($target in @($buildRoot, $publishRoot, $releaseRoot)) {
     if (Test-Path -LiteralPath $target) {
+      Assert-BuildChild $target
       Remove-Item -LiteralPath $target -Recurse -Force
     }
   }
@@ -58,12 +65,18 @@ if (-not (Test-Path -LiteralPath $loaderLibrary)) {
 
 $webRoot = Join-Path $publishRoot "web"
 New-Item -ItemType Directory -Force -Path $webRoot | Out-Null
+$obsoleteTimeTombsRoot = Join-Path $webRoot "assets\time-tombs"
+$obsoleteTimeTombsDist = Join-Path $webRoot "dist\time-tombs"
+foreach ($target in @($obsoleteTimeTombsRoot, $obsoleteTimeTombsDist)) {
+  if (Test-Path -LiteralPath $target) { Assert-BuildChild $target; Remove-Item -LiteralPath $target -Recurse -Force }
+}
 Copy-Item -LiteralPath (Join-Path $projectRoot "index.html") -Destination $webRoot -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "style.css") -Destination $webRoot -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "app.js") -Destination $webRoot -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "systems") -Destination $webRoot -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "scenes") -Destination $webRoot -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "public") -Destination $webRoot -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot "dist") -Destination $webRoot -Recurse -Force
 
 $resourceObject = Join-Path $buildRoot "version.res"
 $compiledObject = Join-Path $buildRoot "MareInfinitus.obj"

@@ -67,17 +67,25 @@ Then open `http://localhost:3000/`.
 
 The first independent scene pack proves that the simulation is not an ocean
 reskin engine. Open `?scene=time-tombs` or choose **WORLDS** in the interface.
-It has its own fixed-pixel renderer, palette, persistent memory, settings,
-field guide, and interaction model:
+It is a ground-up Phaser 4 world with a fixed pixel grid, one coherent pixel-art
+valley, depth-sorted actors, alpha-aware inspection, and its own interaction model:
 
-- six authored monuments: the Shrike Palace, three Cave Tombs, Crystal
-  Monolith, Obelisk, Jade Tomb, and Sphinx
-- a world-anchored aeolian field for windblown dust, dune grains, grass, and
-  storm bands
-- anti-entropic time tides, duplicated footsteps, and traveler echoes
-- long-form reveal pacing with an exceptionally rare, discontinuously moving
-  Shrike presence
-- pointer-driven sand disturbances that linger and feed the scene's memory
+- a single seamless valley composition whose terrain, architecture, human
+  scale, sky, and foreground share one pixel language
+- the Sphinx, Shrike Palace, Crystal Monolith, Obelisk, Jade Tomb, Cave Tombs,
+  camp, and chronotropic instruments at deliberately different scales and depths
+- seven individually inspectable pilgrims with distinct fixed-pixel sprites
+- staged time tides: instrument warnings, lifted dust and footprint impressions,
+  pilgrim reactions, and a quiet recovery; click echoes retain the depth clicked
+- paired pilgrim vignettes, restrained tomb glints and interior lights, and rare
+  distant Shrike glimpses
+- contextual walks to the fire and instruments, kneeling and sketching poses,
+  inspectable wind-worn stones, and click-triggered monument responses
+- distinct patched shelters, bedding and travel cases, with sun-linked shadows
+- optional spatial wind, campfire and instrument sound through **M**; silent on
+  entry, while hidden, and in screensaver mode
+- a stable camera aperture: resizing reveals or hides the same world without
+  reconstructing, reseeding, or stretching it
 
 The monument order and field-guide descriptions were checked against Benson's
 local four-book *Hyperion Cantos* edition. Short excerpts remain identified as
@@ -171,7 +179,9 @@ npm test
 The validator syntax-checks every script, checks the 33-entry Mare field guide for
 duplicate IDs and retired debug copy, verifies subpath-safe metadata and exact
 asset dimensions, regenerates the icon set deterministically, validates native
-packaging inputs, and stress-tests both registered scenes for 48 simulated hours.
+packaging inputs, stress-tests Mare’s simulation, and validates the Time Tombs
+native rasters, temporal events, spatial audio mix, and paired interactions plus
+a deterministic ten-minute expedition replay.
 
 ## Project structure
 
@@ -188,6 +198,10 @@ packaging inputs, and stress-tests both registered scenes for 48 simulated hours
 - `systems/motion-engine.js` — mass-aware locomotion, articulated spines, direction continuity, and shared soft-body chains
 - `systems/world-physics.js` — spatial perception, depth-aware separation, hydrodynamic body wakes, and buoyancy contacts
 - `systems/scene-engine.js` — shared depth compositing and the evolving water-material field
+- `src/time-tombs/` — the Phaser 4 Time Tombs scene, world data, actors, interactions, and fixed-camera contract
+- `dist/time-tombs/time-tombs.js` — the production ESM bundle loaded only when Time Tombs is selected
+- `src/time-tombs/art/` — native indexed rasters, material ramps, terrain, six tombs, props, and 75 pilgrim poses
+- `scripts/render-time-tombs-art.mjs` — lossless nearest-neighbor review sheets; no image reduction
 - `systems/event-director.js` — long-form quiet/build/reveal/recovery pacing and rare-encounter spacing
 
 The coupling and stability contracts are documented in
@@ -200,9 +214,23 @@ The scene-pack contract and expansion workflow are documented in
 - `screensaver/macos/` — native ScreenSaver.framework/WKWebView `.saver` and packaging
 - `scripts/` — deterministic icon generation and release validation
 
-No build step is required. The project is plain HTML, CSS, and JavaScript so the
-same simulation can run locally, from GitHub Pages, or later inside a native
-screensaver shell.
+Mare Infinitus remains plain Canvas JavaScript. Time Tombs is compiled with
+Vite and TypeScript: run `npm run assets:time-tombs` after changing its source
+or world art, then `npm run assets:stamp`. Review sheets go to `output/time-tombs/`.
+The art is constructed at native sizes in code, with no image-generation or
+external-editor step. The view stays at 4×; drag or use arrow keys to explore
+in either axis, and middle-click or press Home to return to the valley. The extended world has
+real sky and foreground for taller windows. Walk cycles follow distance traveled;
+sun-driven shadows, brief sand gusts, wind-driven cloth, and campfire smoke share
+the scene’s slow environmental rhythms.
+The paired conversations and atmospheric choreography are supplemental visual
+interpretations, not scenes quoted from the novels. Run the browser smoke checks
+with `scripts/qa-time-tombs.cjs` and `scripts/qa-time-tombs-life.cjs` through
+Playwright CLI; the latter advances the debug-only clock through the full event
+sequence. `node scripts/render-time-tombs-art.mjs life` creates native, 4× and
+grayscale material/character review sheets.
+The resulting static files run locally, from GitHub Pages, and
+inside the native screensaver shells without a server-side runtime.
 
 ## Source and attribution
 
@@ -218,3 +246,19 @@ This is a dependency-light static site hosted through GitHub Pages at
 `https://bensonperry.com/mareinfinitus/`. GitHub Pages publishes the root of the
 default branch; all asset paths are relative so local and subpath hosting behave
 the same way.
+## Time Tombs camera and screensaver
+
+- Wheel over the canvas: step between crisp 1×, 2× and 4× zoom around the pointer.
+- `F` or the Fullscreen control: enter/exit fullscreen.
+- Click a field-guide entry: center the visible subject (nearest matching prop
+  for groups). Absent encounters center their area without forcing a spawn.
+- Screensaver mode: hidden controls, silent playback and slow valley panning.
+
+Windows installation: `Install-MareInfinitus.ps1 -SetAsDefault -Scene time-tombs`.
+Both worlds are bundled offline; `-Scene mare-infinitus` selects the ocean.
+macOS builds select the valley with `SCENE=time-tombs bash screensaver/macos/build.sh`.
+
+Production uses GitHub Pages Actions: `npm ci`, `npm run build:web`, `npm test`,
+then `npm run stage:site`. Only runtime files are deployed; the Phaser bundle
+is built for every deployment and screensaver package. Do not publish the raw
+source checkout without building its dynamic runtime bundle.

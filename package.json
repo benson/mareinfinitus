@@ -1,16 +1,30 @@
 {
   "name": "mare-infinitus",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Step into the violet sea: a living pixel-material scene from Dan Simmons's Endymion.",
   "scripts": {
     "assets": "node scripts/generate-assets.mjs",
     "assets:check": "node scripts/generate-assets.mjs --check",
     "assets:stamp": "node scripts/stamp-runtime-assets.mjs",
+    "build:web": "npm run build:time-tombs && npm run assets:stamp",
+    "stage:site": "node scripts/stage-site.mjs",
+    "build:time-tombs": "vite build --config vite.time-tombs.config.mts",
+    "typecheck:time-tombs": "tsc -p tsconfig.time-tombs.json",
+    "assets:time-tombs": "node scripts/render-time-tombs-art.mjs && npm run build:time-tombs",
     "dev": "npx serve . -l 3000",
-    "test": "node scripts/validate-release.mjs && node scripts/validate-simulation.mjs && node scripts/validate-scenes.mjs",
+    "test": "npm run typecheck:time-tombs && node scripts/validate-release.mjs && node scripts/validate-simulation.mjs && node scripts/validate-scenes.mjs && node scripts/validate-time-tombs-geometry.mjs",
     "test:simulation": "node scripts/validate-simulation.mjs",
-    "test:scenes": "node scripts/validate-scenes.mjs",
+    "test:scenes": "node scripts/validate-scenes.mjs && node scripts/validate-time-tombs-geometry.mjs",
     "validate": "node scripts/validate-release.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "sharp": "^0.35.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "phaser": "^4.2.1"
   }
 }

@@ -8,6 +8,8 @@
     shortDescription: "Violet water, a fishing station, and an abyss that remembers what crossed it.",
     source: "Endymion",
     rendererVersion: 1,
+    artDirectionVersion: 1,
+    actorContractVersion: 2,
     fixedPixel: true,
     landmarks: ["farcaster-arch", "fishing-station", "raft", "moon"],
     materials: ["water", "wind", "rain", "sediment", "light"],

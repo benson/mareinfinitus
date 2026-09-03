@@ -26,8 +26,13 @@
   NSURL *indexURL = [webRoot URLByAppendingPathComponent:@"index.html" isDirectory:NO];
   NSURLComponents *screenSaverComponents =
       [NSURLComponents componentsWithURL:indexURL resolvingAgainstBaseURL:NO];
+  NSString *selectedScene = [NSString stringWithContentsOfURL:[bundle.resourceURL URLByAppendingPathComponent:@"scene.txt"] encoding:NSUTF8StringEncoding error:NULL];
+  selectedScene = [selectedScene stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+  if (![selectedScene isEqualToString:@"time-tombs"]) selectedScene = @"mare-infinitus";
   screenSaverComponents.queryItems =
-      @[[NSURLQueryItem queryItemWithName:@"screensaver" value:@"1"]];
+      @[[NSURLQueryItem queryItemWithName:@"screensaver" value:@"1"],
+        [NSURLQueryItem queryItemWithName:@"scene" value:selectedScene],
+        [NSURLQueryItem queryItemWithName:@"preview" value:self.isPreview ? @"1" : @"0"]];
   NSURL *screenSaverURL = screenSaverComponents.URL ?: indexURL;
   self.webRootURL = webRoot;
 

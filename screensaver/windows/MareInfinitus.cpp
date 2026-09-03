@@ -7,6 +7,8 @@
 #include <atomic>
 #include <cwctype>
 #include <memory>
+#include <fstream>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
@@ -51,6 +53,13 @@ std::wstring ModuleDirectory() {
   std::wstring path(buffer.data(), length);
   const auto separator = path.find_last_of(L"\\/");
   return separator == std::wstring::npos ? L"." : path.substr(0, separator);
+}
+
+std::wstring SelectedScene() {
+  std::ifstream file(std::filesystem::path(ModuleDirectory()) / L"scene.txt");
+  std::string scene; std::getline(file, scene);
+  if (!scene.empty() && scene.back() == '\r') scene.pop_back();
+  return scene == "time-tombs" ? L"time-tombs" : L"mare-infinitus";
 }
 
 std::wstring UserDataDirectory() {
@@ -248,7 +257,9 @@ void InitializeWebView(ScreenWindow* window) {
                                 return S_OK;
                               }).Get(),
                           &navigationCompletedToken);
-                      window->webview->Navigate(L"https://mare.local/index.html?screensaver=1");
+                      std::wstring sceneURL = L"https://mare.local/index.html?screensaver=1&scene=" + SelectedScene();
+                      if (window->preview) sceneURL += L"&preview=1";
+                      window->webview->Navigate(sceneURL.c_str());
                       return S_OK;
                     }).Get());
           }).Get());
@@ -392,7 +403,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   const LaunchOptions options = ParseLaunchOptions();
   if (options.mode == LaunchOptions::Mode::Configure) {
     MessageBoxW(nullptr,
-                L"Mare Infinitus uses the simulation's curated defaults and has no screensaver-specific settings.",
+                L"Choose Mare Infinitus or Time Tombs with Install-MareInfinitus.ps1 -Scene mare-infinitus (or time-tombs). Both run offline; Time Tombs slowly pans through the valley.",
                 L"Mare Infinitus Screensaver", MB_OK | MB_ICONINFORMATION);
     CoUninitialize();
     return 0;

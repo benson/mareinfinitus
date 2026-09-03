@@ -24,9 +24,23 @@ const runtimeFiles = [
   "scenes/time-tombs.js",
   "app.js",
 ];
+const dynamicRuntimeFiles = [
+  { importer: "scenes/time-tombs.js", relativePath: "dist/time-tombs/time-tombs.js", referencePath: "../dist/time-tombs/time-tombs.js" },
+];
 
 function escapePattern(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+for (const entry of dynamicRuntimeFiles) {
+  const importerPath = path.join(projectRoot, entry.importer);
+  const contents = fs.readFileSync(path.join(projectRoot, entry.relativePath));
+  const version = crypto.createHash("sha256").update(contents).digest("hex").slice(0, 12);
+  const referencePath = entry.referencePath || entry.relativePath;
+  const referencePattern = new RegExp(`${escapePattern(referencePath)}(?:\\?v=(?:PHASER_BUNDLE_HASH|[a-f0-9]{12}))?`, "g");
+  const importer = fs.readFileSync(importerPath, "utf8");
+  if (!referencePattern.test(importer)) throw new Error(`${entry.importer} does not reference ${referencePath}.`);
+  fs.writeFileSync(importerPath, importer.replace(referencePattern, `${referencePath}?v=${version}`));
 }
 
 let html = fs.readFileSync(htmlPath, "utf8");
@@ -40,4 +54,4 @@ for (const relativePath of runtimeFiles) {
 }
 
 fs.writeFileSync(htmlPath, html);
-console.log(`Stamped ${runtimeFiles.length} runtime assets in index.html.`);
+console.log(`Stamped ${runtimeFiles.length} direct and ${dynamicRuntimeFiles.length} dynamic runtime assets.`);

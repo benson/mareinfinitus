@@ -59,3 +59,19 @@ Double-click `Uninstall.cmd` in the installed directory, or run:
 ## Packaging notes
 
 The `.scr` intentionally keeps the web bundle beside the executable instead of downloading the public site. This keeps it offline and makes each release reproducible from the matching repository revision. It is not currently code-signed, so Windows SmartScreen may warn when someone downloads it. A public release should be Authenticode-signed before broad distribution.
+## Choose a world
+
+Both scenes are included offline. Select the Time Tombs when installing:
+
+```powershell
+.\Install-MareInfinitus.ps1 -SetAsDefault -Scene time-tombs
+```
+
+Use `-Scene mare-infinitus` for the ocean. The selection is stored in `scene.txt`
+beside the installed saver. Time Tombs hides its UI and slowly pans through the
+valley; ordinary mouse/key input still exits. Display sleep and lock settings
+remain controlled by Windows and are not changed by the installer. Previous
+installed assets are retained in a timestamped `previous-*` directory.
+
+Before the native build, run `npm ci` and `npm run build:web` from the repository
+root. CI builds and validates this web bundle on both native packaging jobs.

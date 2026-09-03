@@ -1,0 +1,41 @@
+async page=>{
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('http://localhost:3000/?scene=time-tombs&debug=1');await page.waitForFunction(()=>window.__timeTombs?.snapshot);
+  await page.evaluate(()=>window.__timeTombs.pause(true));
+  await page.setViewportSize({width:1400,height:1000});await page.keyboard.press('Home');
+  const snapshot=()=>page.evaluate(()=>window.__timeTombs.snapshot());
+  await page.mouse.move(800,500);
+  const before=await snapshot();
+  const anchor=s=>({x:s.viewport.worldX+(800-s.viewport.x)/s.pixelScale,y:s.viewport.worldY+(500-s.viewport.y)/s.pixelScale});
+  await page.mouse.wheel(0,120);await page.waitForFunction(()=>window.__timeTombs.snapshot().pixelScale===2);
+  await page.waitForTimeout(220);const two=await snapshot();
+  if(Math.abs(anchor(two).x-anchor(before).x)>1||Math.abs(anchor(two).y-anchor(before).y)>1)throw Error('Wheel anchor jumps');
+  await page.mouse.wheel(0,120);await page.waitForFunction(()=>window.__timeTombs.snapshot().pixelScale===1);
+  await page.waitForTimeout(220);await page.mouse.wheel(0,120);await page.waitForTimeout(220);
+  if((await snapshot()).pixelScale!==1)throw Error('Zoom below 1x');
+  for(const expected of [2,4]){await page.mouse.wheel(0,-120);await page.waitForFunction(z=>window.__timeTombs.snapshot().pixelScale===z,expected);await page.waitForTimeout(220);}
+  await page.keyboard.press('f');await page.waitForFunction(()=>Boolean(document.fullscreenElement));
+  await page.locator('[data-fullscreen]').click({force:true});await page.waitForFunction(()=>!document.fullscreenElement);
+  await page.keyboard.press('g');
+  const jade=page.locator('.glossary-entry').filter({has:page.locator('.entry-id',{hasText:'TT-05'})});
+  await jade.click();await page.waitForTimeout(100);
+  const centered=await snapshot(),v=centered.viewport;
+  const center={x:v.worldX+v.width/centered.pixelScale/2,y:v.worldY+v.height/centered.pixelScale/2};
+  if(Math.abs(center.x-512)>4||Math.abs(center.y-169)>5)throw Error('Guide did not center Jade Tomb: '+JSON.stringify(center));
+  await jade.hover();await page.mouse.wheel(0,120);await page.waitForTimeout(220);
+  if((await snapshot()).pixelScale!==4)throw Error('Guide scroll zooms world');
+  const actors=(await snapshot()).actors;
+  await page.setViewportSize({width:1000,height:700});await page.waitForTimeout(80);
+  if(JSON.stringify((await snapshot()).actors)!==JSON.stringify(actors))throw Error('Camera changed actors');
+  await page.screenshot({path:'output/playwright/time-tombs-camera-guide.png'});
+  await page.goto('http://localhost:3000/?scene=time-tombs&screensaver=1&debug=1');
+  await page.waitForFunction(()=>window.__timeTombs?.snapshot);await page.evaluate(()=>window.__timeTombs.pause(true));
+  const first=await snapshot();
+  if(await page.locator('.ui-chrome:visible').count()>0||await page.locator('.welcome-backdrop').isVisible())throw Error('Screensaver chrome visible');
+  await page.evaluate(()=>window.__timeTombs.advance(240));const later=await snapshot();
+  if(Math.abs(later.camera.x-first.camera.x)<50||later.pixelScale!==4)throw Error('Screensaver pan missing');
+  if((await page.evaluate(()=>window.__timeTombs.activity().audio)).enabled)throw Error('Screensaver sound not silent');
+  await page.screenshot({path:'output/playwright/time-tombs-saver.png'});
+  if(errors.length)throw Error(errors.join('\n'));
+  return {wheel:'1/2/4 pointer-anchored',fullscreen:'keyboard and button passed',guide:'centers subject; own scroll preserved',resize:'state preserved',screensaver:'hidden UI, silent, slow pan',pageErrors:errors};
+}

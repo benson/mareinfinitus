@@ -22,6 +22,7 @@ const required = [
   "systems/world-memory.js",
   "systems/soundscape.js",
   "systems/silhouette-library.js",
+  "dist/time-tombs/time-tombs.js",
   "scenes/mare-infinitus.js",
   "scenes/time-tombs.js",
   "screensaver/macos/Sources/MareInfinitusView.h",

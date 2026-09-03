@@ -26,7 +26,7 @@
     <link rel="icon" href="public/favicon-32.png" type="image/png" sizes="32x32">
     <link rel="apple-touch-icon" href="public/apple-touch-icon.png">
     <link rel="manifest" href="public/manifest.webmanifest">
-    <link rel="stylesheet" href="style.css?v=2762e5d718ba">
+    <link rel="stylesheet" href="style.css?v=9f439d9c8db2">
     <title>Mare Infinitus — A Living Simulation</title>
   </head>
   <body>
@@ -60,7 +60,6 @@
         </header>
         <p class="settings-section-label">CHOOSE A SCENE</p>
         <div class="scene-list" data-scene-list></div>
-        <p class="scene-picker-note">Every world shares the same fixed-pixel simulation engine while keeping its own materials, memory, actors, and events.</p>
       </section>
       <section class="settings-panel ui-chrome" id="mare-settings" role="dialog" aria-modal="false" aria-labelledby="settings-title" hidden>
         <header class="settings-header">
@@ -102,6 +101,8 @@
         <span data-inspection-id></span>
         <strong data-inspection-name></strong>
         <small data-inspection-summary></small>
+        <q data-inspection-excerpt hidden></q>
+        <cite data-inspection-source hidden></cite>
       </div>
       <div class="welcome-backdrop" data-welcome hidden>
         <section class="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-title" aria-describedby="welcome-description">
@@ -130,8 +131,8 @@
     <script src="systems/world-physics.js?v=62f1f140be91"></script>
     <script src="systems/scene-engine.js?v=500239c443c7"></script>
     <script src="systems/event-director.js?v=74e0f78d8474"></script>
-    <script src="scenes/mare-infinitus.js?v=3f44fdd6c70c"></script>
-    <script src="scenes/time-tombs.js?v=2ca4a22f72df"></script>
-    <script src="app.js?v=267cb46b21f1"></script>
+    <script src="scenes/mare-infinitus.js?v=5bfc8dcf8ac5"></script>
+    <script src="scenes/time-tombs.js?v=3e45f451731a"></script>
+    <script src="app.js?v=e69adc9ec9b9"></script>
   </body>
 </html>

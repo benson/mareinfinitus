@@ -38,7 +38,7 @@ for (const token of [
 }
 
 const build = fs.readFileSync(path.join(windowsRoot, "build.ps1"), "utf8");
-for (const asset of ["index.html", "style.css", "app.js", "systems", "scenes", "public"]) {
+for (const asset of ["index.html", "style.css", "app.js", "systems", "scenes", "public", "dist"]) {
   if (!build.includes(asset)) throw new Error(`Windows build does not bundle ${asset}`);
 }
 

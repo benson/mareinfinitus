@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_ROOT="${BUILD_ROOT:-$SCRIPT_DIR/build}"
+SCENE="${SCENE:-mare-infinitus}"
+case "$SCENE" in mare-infinitus|time-tombs) ;; *) echo "Unknown scene: $SCENE" >&2; exit 1 ;; esac
 BUNDLE_NAME="Mare Infinitus.saver"
 BUNDLE="$BUILD_ROOT/$BUNDLE_NAME"
 CONTENTS="$BUNDLE/Contents"
@@ -26,6 +28,7 @@ required_assets=(
   "systems/world-memory.js"
   "systems/soundscape.js"
   "systems/silhouette-library.js"
+  "dist/time-tombs/time-tombs.js"
   "scenes/mare-infinitus.js"
   "scenes/time-tombs.js"
 )
@@ -45,6 +48,7 @@ fi
 rm -rf "$BUNDLE"
 mkdir -p "$CONTENTS/MacOS" "$WEB"
 
+printf '%s\n' "$SCENE" > "$CONTENTS/Resources/scene.txt"
 cp "$SCRIPT_DIR/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp "$PROJECT_ROOT/index.html" "$PROJECT_ROOT/style.css" "$PROJECT_ROOT/app.js" "$WEB/"
 ditto "$PROJECT_ROOT/systems" "$WEB/systems"
@@ -52,6 +56,7 @@ ditto "$PROJECT_ROOT/scenes" "$WEB/scenes"
 if [[ -d "$PROJECT_ROOT/public" ]]; then
   ditto "$PROJECT_ROOT/public" "$WEB/public"
 fi
+ditto "$PROJECT_ROOT/dist" "$WEB/dist"
 
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 xcrun --sdk macosx clang \
