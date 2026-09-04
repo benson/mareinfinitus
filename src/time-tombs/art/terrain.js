@@ -32,8 +32,9 @@ export function buildTerrain(bounds={x:WORLD.left,y:WORLD.groundTop,width:WORLD.
   const shape=(points,material)=>r.shape(points.map(([x,y])=>[Math.round(x)-bounds.x,Math.round(y)-bounds.y]),(x,y)=>material(x+bounds.x,y+bounds.y));
   // One broad atmospheric transition, shaped in world space. No 16px rows.
   for(let x=bounds.x;x<bounds.x+bounds.width;x++){
-    const edge=127+Math.sin(x/137)*7+Math.sin(x/39)*2;
-    for(let y=bounds.y;y<Math.min(bounds.y+bounds.height,edge+7);y++)if(y<edge-5||dither(x,y,(edge+7-y)/12))dot(x,y,I.sand[2]);
+    const edge=129+Math.sin(x/207)*11+Math.sin(x/91+1)*4;
+    const blend=5+3*(1+Math.sin(x/173+2));
+    for(let y=bounds.y;y<Math.min(bounds.y+bounds.height,edge+blend);y++)if(y<edge-blend||dither(x,y,(edge+blend-y)/(2*blend)))dot(x,y,I.sand[2]);
   }
   const duneArt=Array.from({length:4},(_,i)=>buildDune(i));
   for(const d of DUNE_PLACEMENTS)r.blit(duneArt[d.study],d.x-bounds.x,d.y-bounds.y);

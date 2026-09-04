@@ -7,12 +7,12 @@ async page=>{
   const result=await page.evaluate(()=>{
     const d=window.__timeTombs,geometry=d.geometry();
     const palace=geometry.find(s=>s.uid==='palace'),sphinx=geometry.find(s=>s.uid==='sphinx');
-    if(new Set(palace.parts).size!==3||new Set(sphinx.parts).size!==3)throw Error('Landmark still has one depth');
+    if(new Set(palace.parts).size<3||new Set(sphinx.parts).size<3)throw Error('Landmark still has one depth');
     if(geometry.some(s=>s.shadow&&s.shadowDepth!==-700))throw Error('Shadow can paint over an actor');
-    // Sphinx body grounds at 201; its forward stairs at 207. An actor at 204
-    // must be in front of the body but behind those stairs, in the same frame.
-    d.placeActor(0,106,204);
-    const s=d.snapshot(),actor=s.subjects.find(s=>s.id==='TT-20'),body=d.identify(106,197),stairs=d.identify(106,203);
+    // Rebuilt Sphinx: body depth 322, projecting stair depth 365. A traveller
+    // at 335 must be in front of the body yet behind the treads in one frame.
+    d.placeActor(0,-89,335);
+    const s=d.snapshot(),actor=s.subjects.find(s=>s.id==='TT-20'),body=d.identify(-89,319),stairs=d.identify(-89,333);
     return {parts:palace.parts,actor,body,stairs};
   });
   // Inspect the resolved pixels, not only the metadata's own comparison.
@@ -32,7 +32,9 @@ async page=>{
     const d=window.__timeTombs;d.advance(54);
     const before=d.geometry(),light=d.snapshot().light.key;d.advance(.8);
     const after=d.geometry(),next=d.snapshot().light.key;
-    const changed=after.filter(s=>s.uid.startsWith('instrument')&&s.key!==before.find(b=>b.uid===s.uid).key);
+    // An offscreen cast has no texture until needed; inspect the real visible
+    // instrument casts, not intentionally culled allocations outside the view.
+    const changed=after.filter(s=>s.uid.startsWith('instrument')&&s.shadow&&s.key!==before.find(b=>b.uid===s.uid).key);
     if(light!==next)throw Error('Frame-only invalidation fixture changed its sun');
     if(!changed.length)throw Error('No prop frame crossed');
     if(changed.some(s=>!s.shadow.startsWith(s.key+'/')))throw Error('Shadow retained frame zero');

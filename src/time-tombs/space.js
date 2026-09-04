@@ -1,3 +1,3 @@
-// The original valley stays at its authored coordinates. Extra sky and desert
-// surround it; resize exposes more of this world without enlarging any pixels.
-export const WORLD={left:-384,top:-384,width:1536,height:1152,groundTop:96,focusX:360,focusY:135,displayScale:4};
+// The authored stage is a finite 1120x360 valley. At 4x an ultrawide window
+// sees the canonical 860x360 establishing frame and pans across the remainder.
+export const WORLD={left:0,top:0,width:1120,height:360,groundTop:150,focusX:570,focusY:180,displayScale:4};

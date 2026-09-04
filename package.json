@@ -13,9 +13,9 @@
     "typecheck:time-tombs": "tsc -p tsconfig.time-tombs.json",
     "assets:time-tombs": "node scripts/render-time-tombs-art.mjs && npm run build:time-tombs",
     "dev": "npx serve . -l 3000",
-    "test": "npm run typecheck:time-tombs && node scripts/validate-release.mjs && node scripts/validate-simulation.mjs && node scripts/validate-scenes.mjs && node scripts/validate-time-tombs-geometry.mjs",
+    "test": "npm run typecheck:time-tombs && node scripts/validate-release.mjs && node scripts/validate-simulation.mjs && node scripts/validate-scenes.mjs && node scripts/validate-time-tombs-geometry.mjs && node scripts/validate-relit-surfaces.mjs",
     "test:simulation": "node scripts/validate-simulation.mjs",
-    "test:scenes": "node scripts/validate-scenes.mjs && node scripts/validate-time-tombs-geometry.mjs",
+    "test:scenes": "node scripts/validate-scenes.mjs && node scripts/validate-time-tombs-geometry.mjs && node scripts/validate-relit-surfaces.mjs",
     "validate": "node scripts/validate-release.mjs"
   },
   "devDependencies": {

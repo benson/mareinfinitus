@@ -2,12 +2,12 @@ import type {FieldEntry} from './types';
 import {BOOK_COLLECTIONS} from './book-excerpts.js';
 export {WORLD} from './space.js';
 export const LANDMARKS:FieldEntry[]=[
- {id:'TT-01',name:'The Sphinx',group:'Time Tombs',summary:'A winged stone guardian with a human face, broad forepaws, and a small entrance beneath its breast.'},
+ {id:'TT-01',name:'The Sphinx',group:'Time Tombs',summary:'An immense mass of heavy stone blocks, its ambiguous crown and sweeping appendages suggesting a living thing without resembling human or lion. Narrow passages within open into auditorium-sized spaces.'},
  {id:'TT-02',name:'The Shrike Palace',group:'Time Tombs',summary:'A black, barbed palace of needle towers, ribbed buttresses, and dark openings.'},
- {id:'TT-03',name:'The Crystal Monolith',group:'Time Tombs',summary:'A slender crystalline monument, its cold facets rising above a cluster of splintered mineral spires.'},
- {id:'TT-04',name:'The Obelisk',group:'Time Tombs',summary:'A narrow black shaft with a pointed crown, faint courses, and minute lights.'},
- {id:'TT-05',name:'The Jade Tomb',group:'Time Tombs',summary:'A green mineral vault whose raised ribs flow down toward a recessed doorway.'},
- {id:'TT-06',name:'The Cave Tombs',group:'Time Tombs',summary:'Low stone chambers with shadowed entrances recessed into weathered rock.'},
+ {id:'TT-03',name:'The Crystal Monolith',group:'Time Tombs',summary:'The largest of the Tombs: an immense, flat-topped crystal mass rising to the canyon rim, without an entrance or carved design.'},
+ {id:'TT-04',name:'The Obelisk',group:'Time Tombs',summary:'An ebony tower enclosing a steep spiral ramp that rises fifty metres above its stone floor. Its dark shaft has no windows.'},
+ {id:'TT-05',name:'The Jade Tomb',group:'Time Tombs',summary:'A deep green vault with walls translucent in the twilight, enclosing wide chambers and winding catacombs behind its recessed entrance.'},
+ {id:'TT-06',name:'The Cave Tombs',group:'Time Tombs',summary:'Three shadowed entrances cut into the canyon wall. Their carved chambers extend thirty or forty metres into the rock.'},
  {id:'TT-07',name:'Pilgrim camp',group:'Expedition',summary:'Patched plum and pale canvas shelters, rolled bedding, travel cases, and a small fire on the sand below the monuments.'},
  {id:'TT-29',name:'Chronotropic instruments',group:'Expedition',summary:'Compact survey instruments with braced feet, metal receivers, and tiny illuminated indicators.'}
 ];

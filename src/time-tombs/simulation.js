@@ -5,7 +5,7 @@ import {steeringTarget,moveOnGround,nearestWalkable} from './navigation.js';
 const point=(uid,name)=>{const p=entityAnchor(uid,name);return [p.x,p.y];};
 
 // Shared places, individual gestures. These are world coordinates, not rails.
-const STOPS=[[350,237],[366,212],[439,230],[571,248]];
+const STOPS=[[225,338],[335,305],[420,282],[575,255]];
 const SLOTS=[[-23,-4],[-7,3],[10,8],[26,0],[-17,14],[11,-9],[29,16]];
 const ACTIONS=['survey','comfort','write','read','pray','watch','listen'];
 const ENCOUNTERS=[{pair:[1,5],name:'care-and-watch'}, {pair:[2,3],name:'shared-pages'}, {pair:[0,6],name:'quiet-counsel'}, {pair:[4,1],name:'reassurance'}];
@@ -13,7 +13,7 @@ const CHORES=[
   {actor:0,name:'warm-hands',route:[point('fire','approach'),point('fire','work')],lookX:entityAnchor('fire','light').x},
   {actor:5,name:'check-instrument',route:[point('instrument-camp','approach'),point('instrument-camp','work')],lookX:entityAnchor('instrument-camp','dial').x},
   {actor:3,name:'check-instrument',route:[point('instrument-camp','workSide')],lookX:entityAnchor('instrument-camp','dial').x},
-  {actor:2,name:'sketch',route:[point('caves','sketch')],lookX:entityAnchor('caves','subject').x}
+  {actor:2,name:'sketch',route:[point('instrument-camp','workSide')],lookX:entityAnchor('caves','subject').x}
 ];
 export const STRIDE=8;
 export function walkFrame(distance){return Math.floor(distance/STRIDE*4)%4;}
@@ -29,11 +29,12 @@ export function createExpedition(){
   const social=null;
   /** @type {null|{actor:number,name:string,route:number[][],lookX:number,leg:number,stage:string,started:number,stageStarted:number}} */
   const chore=null;
-  return {tick:0,accumulator:0,clothPhase:0,time:0,stop:0,phase:'rest',until:24,restStarted:0,restNumber:0,socialStarted:false,choreStarted:false,social,chore,traces,actors:SLOTS.map(([dx,dy],i)=>({
-    id:i,x:STOPS[0][0]+dx,y:STOPS[0][1]+dy,vx:0,vy:0,face:1,turnAfter:0,
+  return {tick:0,accumulator:0,clothPhase:0,time:0,stop:0,phase:'rest',until:24,restStarted:0,restNumber:0,socialStarted:false,choreStarted:false,social,chore,traces,actors:SLOTS.map(([dx,dy],i)=>{
+    const desired=[STOPS[0][0]+dx,STOPS[0][1]+dy],start=nearestWalkable(...desired)??desired;
+    return {id:i,x:start[0],y:start[1],vx:0,vy:0,face:1,turnAfter:0,
     frame:4,state:'rest',action:ACTIONS[i],heldUntil:0,actionStarted:0,
     navigation:null,lastTideCycle:-1,lastShrikeCycle:-1,reaction:'',partner:-1,walkDistance:i*.7,lastFootfall:Math.floor(i*.7/(STRIDE/2))
-  }))};
+  };})};
 }
 export function interact(e,index){
   const a=e.actors[index];if(!a)return;

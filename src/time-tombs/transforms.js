@@ -9,8 +9,8 @@ export function spriteOrigin(key,pose){
   const a=assetFor(key),p=projectGround(pose.x,pose.y,pose.z??0),pivotX=pose.face<0?a.size[0]-1-a.pivot[0]:a.pivot[0];
   return {x:p.x-pivotX,y:p.y-a.pivot[1]};
 }
-export function actorOrigin(a){
-  const spec=assetFor('pilgrim'),foot=actorFoot(a,poseFor(a.frame).planted[0]);
+export function actorOrigin(a,key='pilgrim'){
+  const spec=assetFor(key),foot=actorFoot(a,poseFor(a.frame).planted[0]);
   const pivotX=a.face<0?spec.size[0]-1-spec.pivot[0]:spec.pivot[0];
   return {x:Math.round(a.x)-pivotX,y:Math.round(a.y-elevationAt(foot.x,foot.y))-spec.pivot[1]};
 }

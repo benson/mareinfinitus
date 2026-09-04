@@ -4,6 +4,7 @@ import {WORLD} from '../space.js';
 import {patternAt} from './material-patterns.js';
 import {buildTerrain} from './terrain.js';
 import {TERRACES,terraceColumns} from '../landforms.js';
+import {entityAnchor} from '../entities.js';
 export const WORLD_SIZE=WORLD;
 export {buildShadow} from './shadows.js';
 export {buildSky,buildRidges,buildCloud,buildSun,buildMoon} from './sky.js';
@@ -36,29 +37,35 @@ export function buildGround() {
   path(r,[[294,222],[233,191],[215,177]]);path(r,[[657,251],[652,190],[650,166]]);
   TERRACES.forEach(t=>terrace(r,t));
   path(r,[[142,270],[106,305],[184,360],[168,425],[268,520],[202,660],[290,768]]);
+  // Approaches now traverse the enlarged valley, outside the monuments' feet.
+  // These are worn patches, not lines painted on top of the architecture.
+  const approach=uid=>{const p=entityAnchor(uid,'approach');return [p.x,p.y];};
+  path(r,[approach('sphinx'),[70,405],[220,405],[430,410],[650,430],[850,310],[1070,450],[1100,590],[1390,602],[1470,492],[1800,480],[2020,350],approach('palace')]);
+  path(r,[[294,265],[320,333],[430,410],approach('jade')]);
+  path(r,[[850,310],approach('obelisk')]);path(r,[[1220,592],approach('crystal')]);
+  path(r,[[1560,456],approach('caves')]);
   return r;
 }
 export function buildTent(frame=0,variant=0) {
   const r=new Raster(36,25),c=variant?I.linen:I.cloth,sway=[0,1,2,1][frame%4];
-  r.shape([[1,23],[15,1],[19,1],[35,23]],(x,y)=>c[x<16?2:1]);
-  r.line(16,2,3,21,c[3]);r.line(18,2,32,22,c[0]);
-  r.line(13,6,7,20,c[1]);r.line(19,5,27,21,c[2]);
-  // Tension folds widen toward pegged corners; panels have volume, not noise.
-  r.shape([[13,7],[10,20],[5,22],[10,14]],()=>c[1]);
-  r.shape([[20,7],[29,19],[32,22],[25,19]],()=>c[0]);
-  r.line(12,12,9,20,c[2]);r.line(22,12,27,20,c[2]);
-  r.line(9,10,16,10+sway%2,c[1]);r.line(16,10+sway%2,24,10,c[1]);
-  const repair=patternAt('tent-repair',variant),patchX=7+repair.value%4,patchY=15+repair.at%3;
-  r.rect(patchX,patchY,4,3,c[1]);r.set(patchX,patchY,c[3]);r.set(patchX+3,patchY+2,c[3]);
-  for(let stitch=0;stitch<3;stitch++){
-    const p=patternAt('tent-stitches-'+variant,stitch),y=9+stitch*4;
-    r.set(variant?22:12,y,c[3]);
-    if(p.kind==='echo')r.set(variant?23:11,y+1,c[2]);
-  }
-  r.shape([[18,10],[15-sway,23],[24,23]],()=>c[0]);r.line(18,11,22+sway,22,c[3]);
-  r.line(4,22,11,22-sway%2,c[3]);r.line(25,22,32,22,c[1]);
-  if(variant){r.line(18,1,23,2+sway%2,c[3]);r.set(24,2+sway%2,c[2]);r.rect(22,20,5,2,c[1]);}
-  r.line(3,19,0,24,I.accent[1]);r.line(31,19,35,24,I.accent[1]);return r;
+  // A front entrance and a receding roof share their ridge/corner vertices.
+  r.shape([[12,3],[20,0],[34,19],[26,23]],()=>c[1]);
+  r.shape([[2,23],[12,3],[26,23]],()=>c[2]);
+  r.line(12,3,20,0,c[3]);r.line(12,3,3,21,c[3]);
+  r.shape([[14,7],[20,11],[30,20],[26,22],[21,17]],()=>c[0]);
+  r.shape([[10,8],[8,18],[4,22],[8,14]],()=>c[1]);
+  r.line(19,5,27,15,c[2]);r.line(23,9,30,17,c[2]);
+  r.line(8,11,7,19,c[3]);
+  // Cloth bows between fixed seams; repairs move with that panel, not in space.
+  r.line(13,9,19,12+sway%2,c[2]);r.line(19,12+sway%2,27,16,c[2]);
+  const repair=patternAt('tent-repair',variant),patchX=5+repair.value%3,patchY=17;
+  r.rect(patchX,patchY,3,3,c[1]);r.set(patchX,patchY,c[3]);r.set(patchX+2,patchY+2,c[3]);
+  for(const [x,y] of [[17,7],[20,11],[25,16]])r.set(x,y,c[3]);
+  r.shape([[12,10],[10-sway,23],[19,23]],()=>c[0]);
+  r.line(12,11,17+sway,22,c[3]);
+  r.line(3,22,8,22-sway%2,c[3]);r.line(20,22,25,22,c[1]);
+  if(variant){r.line(20,0,25,1+sway%2,c[3]);r.set(25,2+sway%2,c[2]);r.rect(21,20,4,2,c[1]);}
+  r.line(4,18,0,24,I.accent[1]);r.line(31,16,35,24,I.accent[1]);return r;
 }
 export function buildSupplies(){
   const r=new Raster(23,12),c=I.cloth;
@@ -77,7 +84,7 @@ export function buildFire(frame=0) {
 }
 export function buildInstrument(frame=0,variant=0) {
   const r=new Raster(15,24),body=I.obsidian[1],edge=I.uniform[1],brass=I.accent[1];
-  r.rect(6,4,3,17,body);r.rect(3,20,9,3,edge);r.rect(3,8,9,2,brass);
+  r.rect(6,4,3,15,body);r.rect(6,17,3,3,edge);r.rect(3,8,9,2,brass);
   r.line(4,19,7,12,edge);r.line(10,19,7,12,edge);r.rect(6,2,3,2,brass);
   if(variant%2){r.line(3,8,4,3,edge);r.line(11,8,10,3,edge);r.rect(5,3,5,1,brass);}
   // Recessed dial, metal rim and a shaded swivel collar above the tripod.
@@ -85,5 +92,10 @@ export function buildInstrument(frame=0,variant=0) {
   r.line(6,16,8,16,edge);r.set(7,17,brass);
   const needle=[[7,13],[6,12],[7,11],[8,12]][frame];r.line(7,13,...needle,I.linen[2]);
   r.set(9,15,frame===1||frame===2?I.anomaly[0]:brass);
-  r.line(6,19,2,23,body);r.line(8,19,12,23,body);r.set(2,23,brass);r.set(12,23,brass);return r;
+  // Three feet sit at different depths; bright left edges describe metal legs,
+  // not a large triangular flat plate beneath the dial.
+  r.line(7,17,7,21,body);r.set(7,21,brass);
+  r.line(6,19,2,23,body);r.line(5,20,2,22,edge);
+  r.line(8,19,12,23,body);r.line(9,20,11,22,edge);
+  r.set(2,23,brass);r.set(12,23,brass);return r;
 }

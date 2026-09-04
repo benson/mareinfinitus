@@ -1,5 +1,6 @@
 import {ENTITIES,footprintFor,inPolygon} from './entities.js';
 import {elevationAt,slopeAt} from './surface.js';
+import {WORLD} from './space.js';
 export const ACTOR_RADIUS=3;
 export const OBSTACLES=ENTITIES.map(e=>{
   const polygon=footprintFor(e),xs=polygon.map(p=>p[0]),ys=polygon.map(p=>p[1]);
@@ -7,7 +8,7 @@ export const OBSTACLES=ENTITIES.map(e=>{
 });
 function edgeDistance(x,y,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/(dx*dx+dy*dy||1)));return Math.hypot(x-a[0]-t*dx,y-a[1]-t*dy);}
 export function isWalkable(x,y,obstacles=OBSTACLES){
-  if(x< -370||x>1136||y<100||y>752)return false;
+  if(x<WORLD.left+4||x>WORLD.left+WORLD.width-5||y<WORLD.groundTop+4||y>WORLD.top+WORLD.height-5)return false;
   for(const o of obstacles){
     if(o.bounds&&(x<o.bounds[0]||y<o.bounds[1]||x>o.bounds[2]||y>o.bounds[3]))continue;
     const p=o.polygon;

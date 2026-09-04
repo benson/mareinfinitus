@@ -2,91 +2,18 @@ import {Raster,fromMask} from './raster.js';
 import {INDEX as I} from './palette.js';
 import {patternAt} from './material-patterns.js';
 
-// Small authored stories in the materials. No speckle layer, unbounded damage,
-// resampling, or animated deformation of massive stone.
-export function enrichTomb(key,r){
-  const c=I.stone;
-  if(key==='sphinx'){
-    // Collar tablets, a broken brow, and sand worn into the forepaw grooves.
-    for(const [x,y] of [[68,63],[75,64],[82,65]]){r.rect(x,y,4,5,c[1]);r.line(x,y,x+2,y,c[3]);r.set(x+1,y+2,c[2]);}
-    r.line(65,28,67,34,c[0]);r.line(67,34,66,40,c[1]);
-    r.line(36,96,49,96,c[3]);r.line(108,97,115,97,c[2]);
-    // Overlapping small coverts sit above the long carved flight feathers.
-    for(const [x,y] of [[32,53],[39,57],[46,61],[121,55],[114,60],[107,64]]){
-      r.shape([[x,y],[x+5,y+2],[x+6,y+6],[x+3,y+5]],()=>c[x<76?2:1]);
-      r.line(x,y,x+4,y+2,c[x<76?4:3]);
-    }
-    r.line(67,74,70,78,c[1]);r.line(89,70,91,81,c[1]);
-    for(const [x,y] of [[42,100],[48,101],[110,101],[119,102]])r.set(x,y,I.sand[2]);
-  }else if(key==='palace'){
-    // Recesses under the thorn shoulders and narrow slatted windows.
-    for(const [x,y] of [[35,54],[55,32],[81,67]]){
-      r.rect(x,y,3,9,I.obsidian[0]);r.line(x-1,y,x-1,y+7,I.obsidian[2]);
-      r.set(x+1,y+3,I.obsidian[2]);r.set(x+1,y+6,I.obsidian[1]);
-    }
-    r.line(28,102,32,97,I.obsidian[0]);r.line(32,97,32,92,I.obsidian[0]);
-    r.line(72,111,78,108,I.obsidian[2]);
-    // Footings have weight: lit shoulders, recessed sides, chipped stone caps.
-    for(const [x,y,w] of [[12,113,11],[86,114,13]]){
-      r.shape([[x,y+5],[x+2,y],[x+w-2,y-1],[x+w,y+5]],(px,py)=>I.obsidian[px<x+4?2:1]);
-      r.line(x+3,y,x+w-3,y-1,I.obsidian[3]);
-      r.line(x+w-2,y+1,x+w-1,y+4,I.obsidian[0]);
-    }
-  }else if(key==='crystal'){
-    // Internal inclusions are short offset planes, not uniform surface grain.
-    for(const [x,y,h] of [[19,23,13],[22,61,19],[20,107,11]]){
-      r.line(x,y,x-2,y+h,I.crystal[1]);r.line(x+2,y+2,x,y+h-1,I.crystal[3]);
-      r.set(x-1,y+h,I.crystal[4]);
-    }
-    r.line(10,87,14,91,I.crystal[4]);r.line(14,91,14,101,I.crystal[2]);
-  }else if(key==='obelisk'){
-    for(const y of [18,36,53]){r.line(8,y,10,y+1,I.obsidian[0]);r.set(8,y+2,I.obsidian[2]);}
-    r.line(5,60,5,64,I.obsidian[1]);r.set(3,67,I.sand[1]);
-    r.set(4,61,I.obsidian[3]);r.line(11,63,12,65,I.obsidian[0]);
-  }else if(key==='jade'){
-    // Veins wrap around ribs; a raised circular seal crowns the entrance.
-    for(const [x,y] of [[48,29],[68,46],[35,62],[91,70]]){
-      r.line(x,y,x+3,y+4,I.jade[2]);r.line(x+3,y+4,x+2,y+8,I.jade[1]);r.set(x-1,y,I.jade[4]);
-    }
-    r.blit(fromMask(['..aa..','.abba.','ab..ba','ab..ba','.abba.','..aa..'],{a:I.jade[1],b:I.jade[3]}),55,54);
-    r.line(17,79,26,77,I.jade[2]);r.line(94,82,107,83,I.jade[0]);
-    // Translucent mineral beds wrap around the arch instead of speckling it.
-    for(const [x,y] of [[35,44],[69,30],[83,61]]){
-      r.shape([[x,y],[x+3,y-3],[x+5,y+1],[x+4,y+6],[x+1,y+7]],()=>I.jade[2]);
-      r.line(x,y,x+1,y+4,I.jade[3]);r.set(x+3,y+5,I.jade[1]);
-    }
-  }else if(key==='caves'){
-    // Different threshold stones, dark inner ledges, fractured lintels.
-    for(const [x,y] of [[20,23],[54,18],[88,25]]){
-      r.line(x-2,y+4,x+2,y+4,c[1]);r.line(x+2,y+5,x+2,y+9,c[0]);
-      r.line(x-5,y-7,x-2,y-8,c[4]);r.set(x-1,y-7,c[1]);
-    }
-    r.line(8,30,12,33,c[2]);r.rect(43,37,6,1,c[3]);r.rect(80,39,5,1,c[2]);
-  }
-  return r;
-}
-
+// Lights are native masks on the rebuilt architectural planes. Eight held
+// facet states avoid allocating dozens of full-height monolith textures.
 export function buildTombLight(key,source,frame){
   const r=new Raster(source.width,source.height);
+  const anchors={jade:[[105,141],[117,138],[124,142]],palace:[[175,478],[178,476]],obelisk:[[39,500],[39,521]],sphinx:[[137,181],[156,186],[196,186],[216,181]],caves:[[63,320],[81,320]]};
   if(key==='crystal'){
-    const y=12+Math.round(frame/63*91);
-    r.line(11,y,26,y+12,I.crystal[4]);r.line(11,y+1,20,y+9,I.crystal[3]);
-    r.line(17,y+17,24,y+11,I.crystal[3]);
-  }else if(key==='jade'){
-    r.line(56,55,59,55,I.jade[4]);r.set(60,57,I.jade[3]);
-    r.line(56,78,60,78,I.jade[2]);
-  }else if(key==='palace'){
-    r.line(55,106,56,106,I.anomaly[0]);r.line(55,107,55,110,I.obsidian[3]);
-    r.set(56,38,I.obsidian[3]);r.set(36,61,I.obsidian[2]);
-  }else if(key==='obelisk'){
-    for(const y of [20,38,56])r.set(9,y,I.obsidian[3]);
-  }else if(key==='sphinx'){
-    r.line(73,20,76,20,I.stone[3]);r.line(65,56,73,57,I.stone[4]);
-    r.line(76,93,79,93,I.stone[2]);
-  }else if(key==='caves'){
-    const x=[19,53,87,53][frame];r.line(x,34,x+2,34,I.stone[2]);r.set(x+1,33,I.stone[1]);
+    const facets=[[[94,130],[106,265]],[[106,265],[119,413]],[[119,413],[122,545]],[[122,545],[125,690]],[[173,35],[181,279]],[[181,279],[190,491]],[[190,491],[202,707]],[[67,60],[68,266]]];
+    const [a,b]=facets[frame%8];r.line(...a,...b,I.crystal[4]);
+    r.line(a[0]+1,a[1],b[0]+1,b[1],I.crystal[3]);
+  }else{
+    const points=anchors[key];for(let i=1;i<points.length;i++)r.line(...points[i-1],...points[i],key==='jade'?I.jade[4]:key==='palace'?I.anomaly[0]:key==='obelisk'?I.obsidian[3]:I.stone[3]);
   }
-  // Light belongs to the subject; it cannot paint beyond the authored silhouette.
   r.data.forEach((_,i)=>{if(source.data[i]===255)r.data[i]=255;});return r;
 }
 

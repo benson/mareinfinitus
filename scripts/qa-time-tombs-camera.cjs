@@ -21,7 +21,7 @@ async page=>{
   await jade.click();await page.waitForTimeout(100);
   const centered=await snapshot(),v=centered.viewport;
   const center={x:v.worldX+v.width/centered.pixelScale/2,y:v.worldY+v.height/centered.pixelScale/2};
-  if(Math.abs(center.x-512)>4||Math.abs(center.y-169)>5)throw Error('Guide did not center Jade Tomb: '+JSON.stringify(center));
+  if(Math.abs(center.x-646)>4||Math.abs(center.y-204.5)>5)throw Error('Guide did not center Jade Tomb: '+JSON.stringify(center));
   await jade.hover();await page.mouse.wheel(0,120);await page.waitForTimeout(220);
   if((await snapshot()).pixelScale!==4)throw Error('Guide scroll zooms world');
   const actors=(await snapshot()).actors;

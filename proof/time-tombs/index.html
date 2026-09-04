@@ -1,0 +1,34 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>time tombs — proof slice</title>
+<style>
+  body { margin: 0; background: #0b0a14; color: #bbb; font: 12px/1.5 system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 24px; }
+  canvas { image-rendering: pixelated; display: block; }
+  .row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+  label { text-transform: lowercase; opacity: .7; display: block; margin-bottom: 4px; }
+</style>
+<div class="row">
+  <div><label>4× · 160×90 logical</label><canvas id="c4" width="640" height="360"></canvas></div>
+</div>
+<div class="row">
+  <div><label>2×</label><canvas id="c2" width="320" height="180"></canvas></div>
+  <div><label>4× grayscale</label><canvas id="cg" width="640" height="360" style="filter: grayscale(1)"></canvas></div>
+</div>
+<script type="module">
+  import { renderFrame, SLICE } from "./scene.js";
+  const off = document.createElement("canvas"); off.width = SLICE.width; off.height = SLICE.height;
+  const octx = off.getContext("2d");
+  const targets = ["c4", "c2", "cg"].map((id) => { const c = document.getElementById(id); const ctx = c.getContext("2d"); ctx.imageSmoothingEnabled = false; return { c, ctx }; });
+  let last = -1; const start = performance.now();
+  function tick(now) {
+    const t = (now - start) / 1000;
+    if (Math.floor(t * 14) !== last) {
+      last = Math.floor(t * 14);
+      const r = renderFrame(t);
+      octx.putImageData(new ImageData(r.toRGBA(), r.width, r.height), 0, 0);
+      for (const { c, ctx } of targets) { ctx.imageSmoothingEnabled = false; ctx.drawImage(off, 0, 0, c.width, c.height); }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>

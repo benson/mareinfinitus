@@ -12,7 +12,16 @@ export const DUNE_STUDIES=[
 ];
 function at(points,x,column){
   const i=points.findIndex(p=>p[0]>=x);if(i<=0)return points[0][column];
-  const a=points[i-1],b=points[i];return a[column]+(b[column]-a[column])*(x-a[0])/(b[0]-a[0]);
+  const a=points[i-1],b=points[i],span=b[0]-a[0],u=(x-a[0])/span;
+  const slope=j=>(points[j+1][column]-points[j][column])/(points[j+1][0]-points[j][0]);
+  const tangent=j=>{
+    if(j===0)return slope(0);if(j===points.length-1)return slope(j-1);
+    const l=slope(j-1),r=slope(j);return l*r<=0?0:2*l*r/(l+r);
+  };
+  // Smooth between the authored sections without overshooting their extrema.
+  // Rendering and the physical surface both consume this same curve.
+  return (2*u**3-3*u*u+1)*a[column]+(u**3-2*u*u+u)*span*tangent(i-1)
+    +(-2*u**3+3*u*u)*b[column]+(u**3-u*u)*span*tangent(i);
 }
 export function buildDune(study=0){
   const d=DUNE_STUDIES[study],r=new Raster(d.w,d.h),c=I.sand;

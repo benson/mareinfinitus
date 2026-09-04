@@ -5,7 +5,7 @@ import {projectGround} from './surface.js';
 // them and nothing accumulates into a sliding carpet of dots.
 const clamp=v=>Math.max(0,Math.min(1,v));
 const hash=n=>{const x=Math.sin(n*127.1+311.7)*43758.5453;return x-Math.floor(x);};
-const SOURCES=[[-186,314],[-12,239],[129,236],[205,277],[362,270],[466,236],[601,278],[788,354],[988,460],[302,407]];
+const SOURCES=[[42,334],[128,258],[220,328],[318,302],[410,282],[520,270],[635,292],[770,258],[914,310],[1048,268]];
 export function windAt(time){
   const phase=(time%34)/34,burst=Math.sin(Math.PI*clamp((phase-.50)/.35));
   return .18+.72*burst*burst;
@@ -14,14 +14,14 @@ export function tideAt(time){
   const cycle=Math.floor(time/84),age=time%84,phase=(age-56)/18;
   const stage=age<48?'quiet':age<56?'forewarning':age<74?'crossing':age<80?'settling':'quiet';
   const warning=stage==='forewarning'?Math.sin((age-48)/8*Math.PI/2):stage==='crossing'?1:stage==='settling'?(80-age)/6:0;
-  return {cycle,phase,stage,warning,active:phase>0&&phase<1,amount:phase>0&&phase<1?Math.sin(phase*Math.PI):0,x:250+phase*390};
+  return {cycle,phase,stage,warning,active:phase>0&&phase<1,amount:phase>0&&phase<1?Math.sin(phase*Math.PI):0,x:160+phase*800};
 }
 // One front, not a luminous river: small local disturbances share its timing.
 export function tideDustAt(time){
   const tide=tideAt(time),grains=[];
   if(!tide.active)return grains;
   for(let i=0;i<36;i++){
-    const x=262+hash(i*5)*360,y=180+hash(i*5+1)*89;
+    const x=180+hash(i*5)*760,y=205+hash(i*5+1)*120;
     const lift=clamp(1-Math.abs(x-tide.x)/32)*tide.amount;
     if(lift>.08){const p=projectGround(x+Math.sin(i)*lift*3,y);grains.push({x:p.x,y:Math.round(p.y-lift*(3+hash(i+2)*7)),alpha:lift*.48});}
   }
@@ -37,18 +37,18 @@ export function tombLightAt(time,key){
   const offsets={sphinx:8,palace:41,crystal:0,obelisk:27,jade:65,caves:83};
   const age=(time+(offsets[key]||0))%104;
   const amplitude=age<14?Math.sin(age/14*Math.PI)**2:0;
-  return {alpha:amplitude*(key==='crystal'?.7:.42),frame:key==='crystal'?Math.min(63,Math.floor(age/14*64)):0};
+  return {alpha:amplitude*(key==='crystal'?.7:.42),frame:key==='crystal'?Math.min(7,Math.floor(age/14*8)):0};
 }
 // A held distant silhouette. No flashing, chasing, or camera-facing jump scare.
 export function shrikeAt(time){
   const cycle=Math.floor(time/180),age=time%180-42;
-  const positions=[[419,151],[180,176],[578,170]];
+  const positions=[[610,220],[860,212],[390,232]];
   const [x,base]=positions[cycle%positions.length];
   return {cycle,x,base,active:age>=0&&age<22,alpha:age>=0&&age<22?Math.min(age/2.5,(22-age)/4,1)*.82:0};
 }
 export function tombResponseAt(key,age){
   const active=age>=0&&age<9;
-  return {active,alpha:active?Math.sin(age/9*Math.PI)**2*.85:0,frame:key==='crystal'?Math.min(63,Math.max(0,Math.floor(age/9*64))):0};
+  return {active,alpha:active?Math.sin(age/9*Math.PI)**2*.85:0,frame:key==='crystal'?Math.min(7,Math.max(0,Math.floor(age/9*8))):0};
 }
 export function sandAt(time){
   const grains=[];

@@ -29,7 +29,17 @@ const LEGS=[
  ['.....duu....','.....duu....','....dd.uu...','...ddd.uu...','...oo..uu...','.......oo...','.......oo...','............']
 ];
 const IDLE=['.....uudd...','.....uudd...','.....uudd...','.....uu.dd..','.....uu.dd..','.....oo.oo..','....ooo.ooo.','............'];
-const RAMPS=[I.cloth,I.linen,I.cloth,I.obsidian,I.obsidian,I.uniform,I.jade];
+// One source ramp per identity. These are the finished color-code ramps from
+// the stage study, not a runtime recolor pass.
+const RAMPS=[
+  [I.cloth[1],I.fire[0],I.accent[1],I.accent[1]],
+  I.linen,
+  I.cloth,
+  [I.pilgrimStone[1],I.linen[1],I.pilgrimStone[3],I.pilgrimStone[4]],
+  [I.obsidian[0],I.obsidian[1],I.obsidian[2],I.obsidian[2]],
+  I.uniform,
+  I.pilgrimJade
+];
 function garmentDetail(r,index,y,legend){
   // Identity-specific construction, attached to the torso in every pose.
   // Never use noise or new skin colors to distinguish the pilgrims.
@@ -40,7 +50,7 @@ function garmentDetail(r,index,y,legend){
   if(index===3){ink(5,1,legend.l);ink(6,2,legend.d);ink(6,4,I.accent[1]);}
   if(index===4){ink(5,1,I.linen[2]);ink(6,2,legend.d);ink(7,4,I.accent[1]);}
   if(index===5){ink(4,1,I.uniform[2]);ink(7,2,I.uniform[0]);ink(8,3,I.uniform[0]);ink(7,5,I.accent[1]);}
-  if(index===6){ink(5,2,I.jade[3]);ink(5,3,I.jade[2]);ink(6,4,I.jade[1]);ink(6,5,I.jade[1]);}
+  if(index===6){ink(5,2,I.pilgrimJade[3]);ink(5,3,I.pilgrimJade[2]);ink(6,4,I.pilgrimJade[1]);ink(6,5,I.pilgrimJade[1]);}
 }
 export function buildPilgrim(index,frame=0) {
   const ramp=RAMPS[index],legend={o:I.obsidian[0],u:ramp[ramp.length===3?1:2],l:ramp[ramp.length-1],d:ramp[0],s:I.skin[index===5?0:1],g:I.accent[0]};
@@ -66,7 +76,7 @@ export function buildPilgrim(index,frame=0) {
   if(frame>=6&&frame<9) {
     const pose=frame-6;
     if(index===5){r.line(9,9,10,4+pose,legend.u);r.line(8,3+pose,11,3+pose,legend.s);}
-    else if(index===6){r.line(10,5,10,19,I.accent[1]);r.set(10,4,I.jade[3]);r.set(10,11-pose,legend.s);if(pose===1)r.line(3,9,3,5,legend.l);}
+    else if(index===6){r.line(10,5,10,19,I.accent[1]);r.set(10,4,I.pilgrimJade[3]);r.set(10,11-pose,legend.s);if(pose===1)r.line(3,9,3,5,legend.l);}
     else if(index===1){r.set(8,8,I.linen[3]);r.set(9,9+Math.min(pose,1),legend.s);if(pose===2){r.set(7,3,legend.s);r.set(8,8,legend.s);}}
     else if(index===4){r.line(9,10,7,7+pose,legend.u);r.set(7,7+pose,legend.s);}
     else {
@@ -93,3 +103,26 @@ export function buildPilgrim(index,frame=0) {
   return r;
 }
 export const PILGRIM_FRAMES=Array.from({length:7},(_,i)=>Array.from({length:[0,2,3,5].includes(i)?12:9},(_,f)=>buildPilgrim(i,f)));
+
+// Ramp-distance actors are separately authored on an 8x12 text grid. They are
+// not reductions of the 12x20 camp figures, so every mark still occupies one
+// native world pixel and the silhouettes remain readable at their depth.
+export function buildRampPilgrim(index,frame=0){
+  const ramp=RAMPS[index],dark=I.obsidian[0],skin=I.skin[index===5?0:1],body=ramp[Math.min(2,ramp.length-1)],light=ramp[ramp.length-1];
+  const r=new Raster(8,12),walk=frame<4,step=walk?frame:0,bob=walk&&step%2===0?1:0;
+  r.set(3,bob,dark);r.set(4,bob,dark);r.set(3,1+bob,skin);r.set(4,1+bob,skin);
+  if(index===6){r.set(2,bob,dark);r.set(5,bob,dark);} // Masteen's hood
+  for(let y=2+bob;y<=7;y++){const inset=y<4?1:0;r.line(2-inset,y,5+inset,y,body);if(y<6)r.set(2-inset,y,light);}
+  if(index===4){r.set(3,2+bob,I.crystal[5]);r.set(4,2+bob,I.crystal[5]);} // Hoyt's collar
+  if(index===1){r.rect(4,4+bob,3,3,I.linen[3]);r.set(6,5+bob,skin);} // Rachel's bundle
+  if(index===6)r.line(7,2,7,11,I.accent[1]);
+  if(walk){
+    const left=[1,2,3,3][step],right=[6,5,4,5][step];r.line(2,4+bob,left,7,light);r.line(5,4+bob,right,7,ramp[0]);
+    r.line(3,8,left+1,11,dark);r.line(4,8,right-1,11,dark);
+  }else{
+    r.line(3,8,2,11,dark);r.line(4,8,5,11,dark);
+    if(frame%3===1)r.set(1,5,skin);else if(frame%3===2)r.set(6,4,skin);
+  }
+  return r;
+}
+export const RAMP_PILGRIM_FRAMES=Array.from({length:7},(_,i)=>Array.from({length:PILGRIM_FRAMES[i].length},(_,f)=>buildRampPilgrim(i,f)));

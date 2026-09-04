@@ -8,9 +8,9 @@ export function skimmerAt(time){
   const elapsed=time-18,cycle=Math.max(0,Math.floor(elapsed/230)),age=elapsed-cycle*230;
   const active=elapsed>=0&&age<86,p=Math.max(0,Math.min(1,age/86));
   const direction=cycle%2?-1:1,progress=direction>0?p:1-p;
-  const groundY=176+Math.sin(progress*Math.PI*2)*10;
-  const altitude=62+Math.sin(p*Math.PI)*(MAX_FLIGHT_ALTITUDE-62);
-  const spec=assetFor('skimmer'),groundX=-455+1715*progress+spec.pivot[0],origin={x:groundX-(direction<0?spec.size[0]-1-spec.pivot[0]:spec.pivot[0]),y:groundY-altitude-spec.pivot[1]};
+  const groundY=244+Math.sin(progress*Math.PI*2)*8;
+  const altitude=48+Math.sin(p*Math.PI)*(MAX_FLIGHT_ALTITUDE-48);
+  const spec=assetFor('skimmer'),groundX=-70+1260*progress+spec.pivot[0],origin={x:groundX-(direction<0?spec.size[0]-1-spec.pivot[0]:spec.pivot[0]),y:groundY-altitude-spec.pivot[1]};
   return {active,cycle,age,direction,...origin,groundX,groundY,altitude,depth:groundY,frame:Math.floor(Math.max(0,age)/1.8)%2};
 }
 

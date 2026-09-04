@@ -1,5 +1,9 @@
 # Time Tombs: procedural authoring plan (replaces the reduction pipeline)
 
+The finished stage composition, placements, depth-specific people and scale
+live in `src/time-tombs/art/stage-study.js` and the six `*-relit.js` builders.
+Palette, code-only authoring and fixed pixels remain.
+
 Status: approved proof expanded into the local Phaser scene on 2026-09-02.
 All six tombs, terrain/sky layers, camp, instruments, and seven named pilgrims
 now use code-authored native rasters in `src/time-tombs/art/`. The proof remains
@@ -45,16 +49,16 @@ Pass criteria from the plan: every element is nameable without being told, the p
 
 ### Format decisions
 
-- **Logical viewport:** 480×270. World wider (e.g. 720×270) so responsive layouts reveal more or less, per AGENTS.md. Integer display scale only. Remove the 2/3 zoom preset.
+- **Logical stage:** 1120×360. The 3440×1440 target shows an 860×360 window at 4×; 1080p shows 640×360 at 3×; smaller screens use 2×. Integer display scales only.
 - **Palette:** `proof/time-tombs/palette.js` is the starting point. Add ramps as materials appear (crystal, jade, camp fabric, fire) and keep every asset to ≤15 colors + transparent.
-- **Pilgrims stay small:** 12×20. The Time Tombs are about monuments against tiny figures. Identity is silhouette plus color code: Sol's cradled bundle, Masteen's hooded robe, Hoyt's collar, Lamia's compact build, Silenus's satyr gait, the Consul's coat. Each character: 4-frame walk, 2-frame idle, one held action. Roughly 50 small masks total.
-- **Tombs as construction functions**, each its own sprite at final size: Sphinx ~160×110, Shrike Palace ~110×130, Crystal Monolith ~40×140, Jade Tomb ~120×90, Cave Tombs as a repeating 3-module. Each follows the Obelisk template: silhouette → face split by light direction → material rule (courses, facets, organic cells) → hand-placed features (door, steps, wings, face) → chips on the shadow silhouette → cast shadow.
+- **Pilgrims have three authored depth sizes:** 12×20 in the foreground camp, 8×12 on the ramp, and 3×7 on the tomb shelf. Identity remains silhouette plus color code at every size; none of these sprites is resampled.
+- **Tombs use the finished relit construction functions** at their `STANDS` sizes: Sphinx 190×132, Shrike Palace 200×240, Crystal Monolith 70×228, Jade Tomb 150×108, Obelisk 42×240, and the Cave Tombs as the 1120×124 canyon wall. Each follows the Obelisk template: silhouette → face split by light direction → material rule → hand-placed features → sparse weathering → ground contact.
 - **Ground as world-space landforms**, with distinct material regions and quiet areas; see the terrain-region pass below. The proof's stamped 16×16 sand tiles are retired. Terrace and path modules remain from the slice.
 
 ## Build order
 
 1. Promote `proof/time-tombs/{palette,raster}.js` to `src/time-tombs/art/` and give the Phaser scene a texture built from a `Raster` (one `Phaser.Textures.Texture` per sprite, integer scale).
-2. Sky, ridges, ground tilemap, path, terraces at 720×270.
+2. Sky, ridges, valley floor, paths and terraces at the finished 1120×360 stage size.
 3. Tombs one at a time, each judged headlessly at 4× before the next. Order by difficulty: Obelisk (done), Crystal Monolith, Cave Tombs, Jade Tomb, Shrike Palace, Sphinx.
 4. Pilgrims: Kassad (done), then Masteen, Hoyt, the Consul, Lamia, Silenus, Sol with Rachel. Idle and held actions after all seven walk.
 5. Camp props, then wire the actor simulation, alpha hit testing, dust, and time tide back on.
@@ -64,7 +68,7 @@ Pass criteria from the plan: every element is nameable without being told, the p
 
 - `buildWorld()`, `buildActors()`, `retainOwnedSilhouette`, `removeGroundShadow`, `cleanClusters`, `cleanTransparentFrame`, `limitTransparentFramePalette`, `ACTOR_SOURCE_REPLACEMENTS`.
 - `docs/art-direction/time-tombs-phaser-master-v*.png` and the pilgrim atlas sources move to `reference/`; they remain useful as concept art.
-- The 2/3 camera zoom preset.
+- Any fractional camera zoom preset.
 
 Keep: Phaser scene structure, alpha-aware sprite hit testing, actor simulation, dust and temporal effects, the code-authored instrument builder.
 

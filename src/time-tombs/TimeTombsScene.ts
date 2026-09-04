@@ -15,7 +15,7 @@ import {planeAt} from './art/geometry.js';
 import {actorOrigin,spriteOrigin,attachmentPoint} from './transforms.js';
 import {projectGround,elevationAt,terrainOccludes,TERRAIN_REVISION} from './surface.js';
 
-type Subject={entry:FieldEntry;sprite:Phaser.GameObjects.Image;key:string;actor?:number;uid?:string;parts?:Phaser.GameObjects.Image[];groundX?:number;groundBase?:number;lift?:number;baseZ?:number;visibleMask?:Silhouette;rasterStamp?:string;shadow?:{sprite:Phaser.GameObjects.Image;stamp:string}};
+type Subject={entry:FieldEntry;sprite:Phaser.GameObjects.Image;key:string;actor?:number;uid?:string;parts?:Phaser.GameObjects.Image[];groundX?:number;groundBase?:number;lift?:number;baseZ?:number;visibleMask?:Silhouette;rasterStamp?:string;shadow?:{sprite:Phaser.GameObjects.Image;stamp:string;key:string}};
 type Silhouette=ReturnType<typeof silhouette>;
 
 export class TimeTombsScene extends Phaser.Scene {
@@ -54,16 +54,15 @@ export class TimeTombsScene extends Phaser.Scene {
       if(!t)throw new Error('Cannot create authored texture '+key);
       t.context.putImageData(new ImageData(new Uint8ClampedArray(r.toRGBA()),r.width,r.height),0,0);
       t.refresh();t.setFilter(Phaser.Textures.FilterMode.NEAREST);
-      if(!['sky','ground','ridges'].includes(key)&&!key.startsWith('cloud')&&!key.endsWith('-shadow')&&!key.includes('-light-'))this.masks.set(key,silhouette(r));
+      if(!['sky','ground','ridges','foreground'].includes(key)&&!key.includes('-stage-')&&!key.endsWith('-shadow')&&!key.includes('-light-'))this.masks.set(key,silhouette(r));
     }
-    this.add.image(WORLD.left,WORLD.top,'sky').setOrigin(0).setDepth(-1000);
-    this.clouds=[38,54,-76,-181].map((y,i)=>this.add.image(0,y,i%2?'cloud-alt':'cloud').setOrigin(0).setDepth(-950));
-    const initialSun=sunlightAt(this.expedition.time);
-    this.addSubject('TT-27','sun-0',initialSun.x,initialSun.y,-920);
-    this.addSubject('TT-30','moon',551,42,-920);
-    this.add.image(WORLD.left,68,'ridges').setOrigin(0).setDepth(-900);
-    this.add.image(WORLD.left,WORLD.groundTop,'ground').setOrigin(0).setDepth(-800);
+    this.add.image(0,0,'sky').setOrigin(0).setDepth(-1000);
+    this.addSubject('TT-27','sun-0',842,30,-920);
+    this.addSubject('TT-30','moon',171,35,-920);
+    this.add.image(0,0,'ridges').setOrigin(0).setDepth(-900);
+    this.add.image(0,0,'ground').setOrigin(0).setDepth(-800);
     for(const p of ENTITIES){
+      if(PLACEMENTS.some(t=>t.uid===p.uid))this.add.image(0,0,p.key+'-stage-shadow').setOrigin(0).setDepth(p.base-.2);
       const key=this.art.has(p.key)?p.key:p.key+'-0',spec=assetFor(key),origin=spriteOrigin(key,{x:p.x,y:p.base});
       this.addSubject(p.id,key,origin.x,origin.y,p.base);
       const subject=this.subjects.at(-1)!;
@@ -71,24 +70,24 @@ export class TimeTombsScene extends Phaser.Scene {
       if(PLACEMENTS.some(t=>t.uid===p.uid)){
         const parts=spec.planes.map((plane:{row:number},i:number)=>this.add.image(origin.x,origin.y,p.key+'-part-'+i).setOrigin(0).setDepth(p.base-spec.pivot[1]+plane.row));
         subject.sprite.destroy();subject.sprite=parts[0];subject.parts=parts;
-        const lights=parts.map((part:Phaser.GameObjects.Image,i:number)=>this.add.image(origin.x,origin.y,p.key+'-light-0-part-'+i).setOrigin(0).setDepth(part.depth+.01).setAlpha(0));
-        this.tombLights.push({key:p.key,sprite:lights[0],parts:lights});
+        this.add.image(0,0,p.key+'-stage-drift').setOrigin(0).setDepth(p.base+.2);
       }
     }
     this.addSubject('TT-31','shrike',419,131,151);
     Object.assign(this.subjects.at(-1)!,{uid:'shrike'});this.subjects.at(-1)!.sprite.setVisible(false);
     this.addSubject('TT-33','skimmer-0',-455,120,150);
     Object.assign(this.subjects.at(-1)!,{uid:'skimmer'});this.subjects.at(-1)!.sprite.setVisible(false);
-    for(const a of this.expedition.actors){const origin=actorOrigin(a);this.addSubject(PILGRIMS[a.id].id,'pilgrim-'+a.id+'-4',origin.x,origin.y,a.y,a.id);this.subjects.at(-1)!.uid='pilgrim-'+a.id;}
+    for(const a of this.expedition.actors){const key=this.actorKey(a.id,4,a.y),origin=actorOrigin(a,key);this.addSubject(PILGRIMS[a.id].id,key,origin.x,origin.y,a.y,a.id);this.subjects.at(-1)!.uid='pilgrim-'+a.id;}
     this.footprints=this.add.graphics().setDepth(-650);
     this.firelight=this.add.graphics().setDepth(-600);
     this.effects=this.add.graphics().setDepth(500);
+    this.add.image(0,0,'foreground').setOrigin(0).setDepth(9000);
     this.highlight=this.add.graphics().setDepth(10000);
     this.cameras.main.setBackgroundColor('#000024');
     this.cameras.main.setBounds(WORLD.left,WORLD.top,WORLD.width,WORLD.height);
     this.cameras.main.roundPixels=true;
     // Select once at mount. Resize changes the viewport, never the pixel size.
-    this.displayScale=this.host.screensaverMode&&new URLSearchParams(location.search).get('preview')==='1'?1:WORLD.displayScale;
+    this.displayScale=this.mountScale();
     this.resizeCamera();
     this.cursors=this.input.keyboard?.createCursorKeys();
     if(!this.host.screensaverMode){this.bindInput();this.bindInspectionUi();this.renderGuide();this.bindSceneChrome();}
@@ -96,7 +95,7 @@ export class TimeTombsScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE,this.resizeCamera,this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN,this.shutdown,this);
     const debug={
-      snapshot:()=>({renderer:'procedural-raster',pixelScale:this.displayScale,time:this.expedition.time,camera:{x:this.cameras.main.scrollX,y:this.cameras.main.scrollY},viewport:{x:this.cameras.main.x,y:this.cameras.main.y,width:this.cameras.main.width,height:this.cameras.main.height,worldX:this.cameras.main.worldView.x,worldY:this.cameras.main.worldView.y},textureCount:this.art.size,light:sunlightAt(this.expedition.time),shadowStamp:this.shadowStamp,shadowFingerprint:(this.art.get('shadow-crystal')??this.art.get('crystal-shadow'))!.data.reduce((h,v)=>(Math.imul(h,31)+v)>>>0,1),actors:this.expedition.actors.map(a=>({...a})),subjects:this.subjects.map(s=>({id:s.entry.id,key:s.key,x:s.sprite.x,y:s.sprite.y,width:s.sprite.width,height:s.sprite.height})),echoes:this.echoes.map(e=>({...e})),hovered:this.hovered?.id??null}),
+      snapshot:()=>({renderer:'procedural-raster',pixelScale:this.displayScale,time:this.expedition.time,camera:{x:this.cameras.main.scrollX,y:this.cameras.main.scrollY},viewport:{x:this.cameras.main.x,y:this.cameras.main.y,width:this.cameras.main.width,height:this.cameras.main.height,worldX:this.cameras.main.worldView.x,worldY:this.cameras.main.worldView.y},textureCount:this.art.size,light:sunlightAt(this.expedition.time),shadowStamp:this.shadowStamp,shadowFingerprint:this.art.get('crystal-stage-shadow')!.data.reduce((h,v)=>(Math.imul(h,31)+v)>>>0,1),actors:this.expedition.actors.map(a=>({...a})),subjects:this.subjects.map(s=>({id:s.entry.id,key:s.key,x:s.sprite.x,y:s.sprite.y,width:this.art.get(s.key)?.width??s.sprite.width,height:this.art.get(s.key)?.height??s.sprite.height,displayWidth:s.sprite.displayWidth,displayHeight:s.sprite.displayHeight})),echoes:this.echoes.map(e=>({...e})),hovered:this.hovered?.id??null}),
       geometry:()=>this.subjects.filter(s=>s.uid).map(s=>({uid:s.uid,key:s.key,x:s.sprite.x,y:s.sprite.y,depth:s.sprite.depth,parts:s.parts?.map(p=>p.depth),shadow:s.shadow?.stamp,shadowDepth:s.shadow?.sprite.depth,mask:s.visibleMask?.mask.reduce((n,v)=>n+v,0)})),
       placeActor:(id:number,x:number,y:number)=>{const a=this.expedition.actors[id];Object.assign(a,{x,y,vx:0,vy:0,frame:4,navigation:null});this.update(0,0);},
       identify:(x:number,y:number)=>this.identify(x,y)?.entry.id??null,
@@ -114,6 +113,14 @@ export class TimeTombsScene extends Phaser.Scene {
     const sprite=this.add.image(Math.round(x),Math.round(y),key).setOrigin(0).setDepth(depth);
     this.subjects.push({entry,sprite,key,actor});
   }
+  private mountScale():number {
+    if(this.scale.width>=3000&&this.scale.height>=1300)return 4;
+    if(this.scale.width>=1800&&this.scale.height>=1000)return 3;
+    return 2;
+  }
+  private actorKey(id:number,frame:number,y:number):string {
+    return `${y<270?'pilgrim-tiny-':y<315?'pilgrim-ramp-':'pilgrim-'}${id}-${frame}`;
+  }
   private resizeCamera():void {
     const camera=this.cameras.main,w=Math.min(this.scale.width,WORLD.width*this.displayScale),h=Math.min(this.scale.height,WORLD.height*this.displayScale);
     // Letterbox beyond finite world bounds, with no stretch, reseed, or rebuild.
@@ -130,19 +137,19 @@ export class TimeTombsScene extends Phaser.Scene {
       const dx=Number(this.cursors.right.isDown)-Number(this.cursors.left.isDown),dy=Number(this.cursors.down.isDown)-Number(this.cursors.up.isDown);
       if(dx||dy){this.worldCenter.x+=dx*70*dt;this.worldCenter.y+=dy*70*dt;this.resizeCamera();}
     }
-    if(this.host.screensaverMode){this.worldCenter.set(WORLD.focusX+Math.sin(t/210)*150,WORLD.focusY+Math.sin(t/270)*12);this.resizeCamera();}
+    if(this.host.screensaverMode){this.worldCenter.set(WORLD.focusX+Math.sin(t/210)*130,WORLD.focusY);this.resizeCamera();}
     const light=sunlightAt(t),shrike=shrikeAt(t);
     for(const s of this.subjects) {
       let key=s.key;
       if(s.actor!==undefined) {
-        const a=this.expedition.actors[s.actor];key='pilgrim-'+a.id+'-'+a.frame;
-        const origin=actorOrigin(a);
+        const a=this.expedition.actors[s.actor];key=this.actorKey(a.id,a.frame,a.y);
+        const origin=actorOrigin(a,key);
         s.sprite.setPosition(origin.x,origin.y).setFlipX(a.face<0).setDepth(Math.round(a.y));
         Object.assign(s,{groundX:a.x,groundBase:a.y,baseZ:Math.round(a.y)-assetFor(key).pivot[1]-origin.y,lift:0});
       } else if(key.startsWith('tent-'))key=key.slice(0,key.lastIndexOf('-')+1)+Math.floor(this.expedition.clothPhase+s.sprite.x*.03)%4;
       else if(key.startsWith('fire-'))key='fire-'+Math.floor(t*5)%4;
       else if(key.startsWith('instrument'))key=key.split('-')[0]+'-'+instrumentAt(t,entityAnchor(s.uid!,'dial').x).frame;
-      else if(key.startsWith('sun-')){key='sun-'+Math.floor(t/4)%2;s.sprite.setPosition(light.x,light.y);}
+      else if(key.startsWith('sun-'))key='sun-'+Math.floor(t/4)%2;
       else if(key==='shrike'){
         const origin=spriteOrigin(key,{x:shrike.x,y:shrike.base});
         s.sprite.setPosition(origin.x,origin.y).setDepth(shrike.base).setVisible(shrike.active).setAlpha(shrike.alpha);
@@ -154,7 +161,7 @@ export class TimeTombsScene extends Phaser.Scene {
         s.sprite.setPosition(Math.round(craft.x),Math.round(craft.y)).setDepth(craft.depth).setFlipX(craft.direction<0).setVisible(craft.active);
         Object.assign(s,{groundX:craft.groundX,groundBase:craft.groundY,baseZ:0,lift:craft.altitude});
       }
-      if(key!==s.key){s.key=key;s.sprite.setTexture(key);}
+      if(key!==s.key)this.setSubjectTexture(s,key);
       if(s.actor!==undefined||s.uid==='shrike'||s.uid==='skimmer')this.updateTerrainOcclusion(s);
     }
     this.updateShadows(light);
@@ -165,7 +172,6 @@ export class TimeTombsScene extends Phaser.Scene {
       s.parts.forEach((part,i)=>part.setTexture(s.key+'-light-'+illumination.frame+'-part-'+i).setAlpha(illumination.alpha));
     }
     this.audio?.update(t,this.worldCenter);
-    this.clouds.forEach((c,i)=>{c.x=Math.round(WORLD.left-c.width+((t*.35+i*384+660)%(WORLD.width+c.width)));});
     this.drawEffects();
     if(!this.host.screensaverMode&&!this.guideFocus)this.refreshHover();
     if(this.guideFocus)this.drawHighlight(this.guideFocus);else if(this.inspectHeld&&this.hovered)this.drawHighlight(this.hovered);
@@ -176,6 +182,15 @@ export class TimeTombsScene extends Phaser.Scene {
     texture.context.putImageData(new ImageData(new Uint8ClampedArray(r.toRGBA()),r.width,r.height),0,0);
     texture.refresh();texture.setFilter(Phaser.Textures.FilterMode.NEAREST);this.art.set(key,r);
   }
+  private setSubjectTexture(s:Subject,key:string):void {
+    const before=this.art.get(s.key),after=this.art.get(key);if(!after)throw Error('Missing authored texture '+key);
+    if(before&&(before.width!==after.width||before.height!==after.height)){
+      const {x,y,depth,visible,alpha,flipX}=s.sprite;s.sprite.destroy();
+      s.sprite=this.add.image(x,y,key).setOrigin(0).setDepth(depth).setVisible(visible).setAlpha(alpha).setFlipX(flipX);
+      s.visibleMask=undefined;s.rasterStamp=undefined;
+    }else s.sprite.setTexture(key);
+    s.key=key;
+  }
   private updateTerrainOcclusion(s:Subject):void{
     if(s.groundBase===undefined)return;
     const stamp=[s.key,s.sprite.x,s.sprite.y,s.sprite.flipX,s.groundBase,TERRAIN_REVISION].join('/');
@@ -185,22 +200,32 @@ export class TimeTombsScene extends Phaser.Scene {
       const wx=s.sprite.x+(s.sprite.flipX?r.width-1-x:x);
       if(terrainOccludes(wx,s.sprite.y+y,s.groundBase))r.set(x,y,255);
     }
-    const key='visible-'+s.uid;this.upload(key,r);s.sprite.setTexture(key);s.visibleMask=silhouette(r);
+    // Phaser retains a CanvasTexture's original dimensions. Give each native
+    // actor grid its own occluded texture rather than silently resampling a
+    // 12 px ramp pilgrim through a previously allocated 20 px texture.
+    const key=`visible-${s.uid}-${r.width}x${r.height}`;this.upload(key,r);s.sprite.setTexture(key);s.visibleMask=silhouette(r);
   }
   private updateShadows(light:ReturnType<typeof sunlightAt>):void {
     this.shadowStamp=light.key;
     for(const s of this.subjects){
-      if(s.groundBase===undefined||s.key.startsWith('fire-'))continue;
+      if(s.groundBase===undefined||s.key.startsWith('fire-')||PLACEMENTS.some(p=>p.uid===s.uid))continue;
       s.shadow?.sprite.setVisible(s.sprite.visible).setAlpha(s.sprite.alpha*(s.uid==='skimmer'?.35:s.actor!==undefined?.4:1));
       if(!s.sprite.visible)continue;
       const source=this.art.get(s.key)!,spec=assetFor(s.key),maxLift=s.uid==='skimmer'?MAX_FLIGHT_ALTITUDE:0;
       const pad=shadowPadding({height:source.height+maxLift}),pivotX=s.sprite.flipX?source.width-1-spec.pivot[0]:spec.pivot[0];
       const x=Math.round(s.groundX!)-pivotX,y=Math.round(s.groundBase)-spec.pivot[1];
+      // Cull the entire allocated projection, not just the visible body: an
+      // offscreen monument may still cast onto the camera's patch of ground.
+      const view=this.cameras.main.worldView;
+      const right=x+source.width+pad,bottom=y+source.height+Math.ceil((source.height+maxLift)*.24)+5;
+      if(right<view.x||x-pad>view.right||bottom<view.y||y>view.bottom)continue;
       const stamp=[s.key,light.key,x,y,s.sprite.flipX,Math.round((s.lift??0)*4)/4,s.baseZ,TERRAIN_REVISION].join('/');
       if(stamp===s.shadow?.stamp)continue;
-      const key='shadow-'+s.uid,r=buildShadow(source,light,s.key,{x,y,baseZ:s.baseZ??0,lift:Math.round((s.lift??0)*4)/4,maxLift,flip:s.sprite.flipX});
+      const r=buildShadow(source,light,s.key,{x,y,baseZ:s.baseZ??0,lift:Math.round((s.lift??0)*4)/4,maxLift,flip:s.sprite.flipX});
+      const key=`shadow-${s.uid}-${r.width}x${r.height}`;
+      if(s.shadow&&s.shadow.key!==key){s.shadow.sprite.destroy();s.shadow=undefined;}
       this.upload(key,r);
-      if(!s.shadow)s.shadow={sprite:this.add.image(x-pad,y,key).setOrigin(0).setDepth(-700),stamp};
+      if(!s.shadow)s.shadow={sprite:this.add.image(x-pad,y,key).setOrigin(0).setDepth(-700),stamp,key};
       s.shadow.stamp=stamp;s.shadow.sprite.setPosition(x-pad,y).setAlpha(s.sprite.alpha*(s.uid==='skimmer'?.35:s.actor!==undefined?.4:1));
     }
   }
@@ -263,7 +288,7 @@ export class TimeTombsScene extends Phaser.Scene {
     if(!event.deltaY||this.host.screensaverMode)return;
     event.preventDefault();
     const now=performance.now();if(now<this.wheelReadyAt)return;
-    const levels=[1,2,4],index=levels.indexOf(this.displayScale),next=levels[Math.max(0,Math.min(2,index+(event.deltaY<0?1:-1)))];
+    const levels=[1,2,3,4],index=levels.indexOf(this.displayScale),next=levels[Math.max(0,Math.min(levels.length-1,index+(event.deltaY<0?1:-1)))];
     if(next===this.displayScale)return;
     this.wheelReadyAt=now+180;this.drag=null;
     const rect=this.host.canvas.getBoundingClientRect(),x=(event.clientX-rect.left)*this.scale.width/rect.width,y=(event.clientY-rect.top)*this.scale.height/rect.height;

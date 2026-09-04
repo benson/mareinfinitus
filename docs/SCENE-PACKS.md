@@ -49,13 +49,13 @@ generated-sheet extraction. No paid generation or external-editor touchup.
    are rounded only when drawing. Flips are allowed; filtered rotation,
    squash, and fractional scaling are not.
 
-Time Tombs retains its original 720×270 valley coordinates inside a 1536×1152
-world beginning at (-384,-384). Extra sky and foreground fill larger views at
-the approved fixed 4× display scale. Both camera axes can pan; Home returns to
-(360,135). Native sizes:
-Sphinx 160×110, Palace 110×130, Crystal 40×140, Jade 120×90, Obelisk 18×70,
-cave group 108×42, pilgrims 12×20, instruments 15×24, and tents 36×25.
-These are physical scale decisions, not boxes to normalize everything into.
+Time Tombs uses its finished 1120×360 authored stage. A 3440×1440 window sees
+860×360 at 4× and pans across the valley; 1080p sees 640×360 at 3×. Home returns
+to the canonical establishing center at (570,180). Native sizes are Sphinx
+190×132, Palace 200×240, Crystal 70×228, Jade 150×108, Obelisk 42×240, canyon
+wall 1120×124, foreground pilgrims 12×20, ramp pilgrims 8×12, distant pilgrims
+3×7, instruments 15×24, and tents 36×25. These are authored stage-scale
+decisions, not boxes to normalize into one metric conversion.
 
 Terrain uses native sand tiles, continuous dune streaks, connected paths, and
 chipped terraces. Texture follows form instead of uniform noise. Random detail

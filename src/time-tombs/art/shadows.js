@@ -6,6 +6,7 @@ import {surfaceGeometry,groundContacts} from './geometry.js';
 import {rayToGround} from '../surface.js';
 export {groundContacts};
 export const GROUNDING_BANDS=Object.fromEntries(Object.entries(ASSETS).map(([key,a])=>[key,a.grounding]));
+const casterMasks=new WeakMap();
 // Raster projection from authored height/depth channels, not opacity-as-height.
 // Optional receiver is a world-space sprite origin, for the actual land surface.
 export function buildShadow(subject,light=sunlightAt(0),key,receiver){
@@ -13,7 +14,7 @@ export function buildShadow(subject,light=sunlightAt(0),key,receiver){
   const pad=shadowPadding({height:subject.height+extra});
   const r=new Raster(subject.width+2*pad,subject.height+Math.ceil((subject.height+extra)*.24)+5);
   const geometry=surfaceGeometry(subject,key),points=new Int32Array(subject.data.length*2);points.fill(-9999);
-  const mask=silhouette(subject).mask;
+  let mask=casterMasks.get(subject);if(!mask){mask=silhouette(subject).mask;casterMasks.set(subject,mask);}
   const rx=receiver?.x??0,ry=receiver?.y??0,baseZ=receiver?.baseZ??0;
   for(let y=0;y<subject.height;y++)for(let x=0;x<subject.width;x++){
     const i=y*subject.width+x;if(!mask[i])continue;

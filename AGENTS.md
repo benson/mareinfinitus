@@ -113,6 +113,14 @@ but it may not reduce characters to independently drifting sprites.
 
 ## Spatial-depth contract
 
+Time Tombs composition must follow the finished reference stage in
+`src/time-tombs/art/stage-study.js`. `STAGE`, `STANDS`, the relit builders and
+their per-depth `human` arguments are authoritative. Scale is communicated by
+thresholds and depth-specific 20 px, 12 px and 7 px people, not by a metric
+world-pixel conversion. Do not normalize door sizes, resample sprites, or place
+a 20 px foreground actor beside a tomb. Source descriptions outrank familiar
+visual tropes (the Sphinx is not an Egyptian human/lion; Crystal is flat-topped).
+
 Scenes with traversable land must not default to one horizontal stage rail.
 Author stable foreground, middle-distance, and horizon planes; distribute
 landmarks deliberately among them; and align each object's base, shadow,
@@ -150,7 +158,55 @@ image reduction/quantization, or silhouette stitching. Inspect at native scale,
 display scale at mount and hold it through resizes. Explicit wheel zoom may
 switch between 1×, 2× and 4× without changing the art or simulation. Keep Mare untouched.
 
+### Time Tombs surface method (2026-09-04): tiles, maps, layers
+
+Build the world the way Genesis hardware forced its artists to: full detail in
+`docs/art-direction/pixel-shading-brief.md` Parts 2 and 3. The rules below are
+not stylistic preferences; they are the construction method, and breaking any of
+them produces the "computed, not drawn" look Benson has rejected repeatedly.
+
+- A monument or ground form is a **hand-drawn tile vocabulary plus a placement
+  map**. Vocabularies live in `src/time-tombs/art/tiles/`, maps in
+  `src/time-tombs/art/maps/`. Nothing larger than a tile is ever filled by a
+  function. `shape()` with a material, `dither()` and `prng()` are banned inside
+  builders; dither is allowed only in the sky and valley-floor gradients.
+- Tiles are text masks whose characters are **ramp steps**, not colors. Lighting
+  is a **ramp shift per placement** (the palette-line swap); variants come from
+  **flipX/flipY** and from three drawn course variants chosen by the map, never
+  by random. Aim for at most 30 unique tiles per monument.
+- Every tile is judged at 6× beside a reference crop from
+  `docs/art-direction/reference/genesis/`. No straight run of one color longer
+  than a block; curves drawn with even step runs; lit edge one step up on left
+  and top, shadow edge one step down on right and bottom; highlight only on
+  crests, lips and dentils; no orphan pixels; silhouettes carried in the tiles.
+- Palette: seven-step hue-shifted ramps per material; a sprite uses at most 15
+  colors, a layer 31, the frame 61. A sprite using fewer than five steps of its
+  ramp is unfinished.
+- The scene is **six parallax layers** (sky 0.05, far 0.35, shelf 0.7, floor
+  0.9, camp 1.0, near 1.2). Depth comes from layers moving differently as much
+  as from drawing. Actors can pass behind the few tiles flagged as front.
+- Glow and in-place motion are **palette cycling** (`cycleFrames`), not drawn
+  frames. Monument hover is a **palette swap** (`highlightRaster`), not an
+  outline.
+- Every 320-wide stretch of the world has a primary and a secondary focal point,
+  built from tiles, because the ultrawide shows three Genesis screens at once.
+- Scale lives in the door, not the mass: builders take `human` (7 on the shelf,
+  6 Jade, 5 Palace and wall); pilgrims exist at 20, 12 and 3×7 px by ground band
+  and a 20 px actor never stands beside a tomb. Bases meet the ground through
+  `paintSandDrift`, never a straight row.
+- Acceptance is a compare sheet (reference beside render at 1× and 3×, plus
+  grayscale and squint) judged by Benson. Comparing to the previous render is
+  not evidence; a passing QA script is not evidence.
+
 ### Scene-wide craftsmanship gate
+
+When feedback exposes a repeated visual fault (flat approaches, mechanical
+dither, outlines posing as volume), audit its entire family and then review the
+whole scene. Do not close the pass after fixing only the supplied screenshot.
+Make a cross-category review sheet: architecture/approaches, atmosphere, terrain,
+props, characters and small effects. Record what changed and what was deliberately
+retained. Shared construction should remove the faulty assumption; a global
+noise, distortion or dither overlay is not a scene-wide craftsmanship pass.
 
 Apply the same authoring standard to **every category**, including the ground,
 sky, distant silhouettes, minor props, contact shadows, footprints and smoke.
