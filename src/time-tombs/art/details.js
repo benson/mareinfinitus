@@ -1,5 +1,6 @@
 import {Raster,fromMask} from './raster.js';
 import {INDEX as I} from './palette.js';
+import {tile,stamp} from './tiles/assemble.js';
 import {patternAt} from './material-patterns.js';
 
 // Lights are native masks on the rebuilt architectural planes. Eight held
@@ -32,18 +33,9 @@ export function buildShrike(){
   ],{a:I.obsidian[2],b:I.obsidian[0],c:I.obsidian[3],d:I.accent[0]});
 }
 
+const WINDSTONES=[["     ***      ","   **+++=     ","  *++..===    "," *+....===#   "," *+..==.===#  ","*+....==.===# ","+......=====# ","============##"],["       ***             ","     **+++=            ","   **++...===          ","  *++.....====         "," *++..==...=====       "," *+....==...=====      ","*++.....==...======    ","*+.......==...======   ","+.........==...======  ","+..........===..====== ","+===========....======#","======================= "],["   ***   ","  *++==  "," *+..=== ","*+...===#","+...====#","========= "]];
 export function buildWindstone(variant=0){
-  const sizes=[[14,8],[23,12],[9,6]], [w,h]=sizes[variant],r=new Raster(w,h),c=I.sand;
-  const ridge=variant===1?6:3;
-  r.shape([[0,h-1],[2,3],[ridge,1],[w-5,2],[w-2,h-4],[w-1,h-1]],(x,y)=>c[y<3?2:x<ridge?1:0]);
-  r.line(3,2,ridge,1,c[3]);r.line(ridge+1,2,w-6,3,c[2]);
-  r.line(ridge+1,4,ridge+3,h-2,c[0]);
-  if(variant===1){r.line(14,5,19,6,c[1]);r.line(15,7,20,8,c[1]);r.set(6,9,c[2]);}
-  const p=patternAt('windstone',variant),x=ridge+1+p.value%3;
-  for(let dy=0;dy<Math.min(3,p.length);dy++){
-    const px=x+Math.floor(dy/2)*p.turn,py=3+dy;
-    if(r.get(px,py)!==255)r.set(px,py,c[0]);
-    if(p.kind==='mirror'&&r.get(px+1,py)!==255)r.set(px+1,py,c[1]);
-  }
-  r.line(2,h-2,5,h-2,c[1]);return r;
+ const dimensions=[[14,8],[23,12],[9,6]],r=new Raster(...dimensions[variant]);
+ // A few native boulder drawings, never stretched or randomly chipped.
+ stamp(r,tile(WINDSTONES[variant]),0,0,I.sand,0);return r;
 }

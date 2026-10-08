@@ -8,6 +8,9 @@ import {buildSun} from './sky.js';
 import {buildTent,buildFire,buildInstrument,buildSupplies} from './environment.js';
 import {PLACEMENTS,PROP_PLACEMENTS,STONE_PLACEMENTS} from '../entities.js';
 import {splitDepthParts} from './geometry.js';
+import {INDEX} from './palette.js';
+import {Raster} from './raster.js';
+import {cycleFrames,highlightRaster} from './tiles/assemble.js';
 export {PLACEMENTS,PROP_PLACEMENTS,STONE_PLACEMENTS};
 
 export function buildArt(){
@@ -16,11 +19,17 @@ export function buildArt(){
   for(const [key,build] of Object.entries(TOMB_BUILDERS)){
     const r=build();art.set(key,r);
     splitDepthParts(r,key).forEach((part,i)=>art.set(key+'-part-'+i,part));
+    const ramp=INDEX[key==='caves'?'sand':key==='sphinx'?'stone':key==='palace'?'obsidian':key==='obelisk'?'obsidian':key];
+    // Stone highlights describe fixed planes, not emissive material. Cycling
+    // their shared colors makes every ridge flicker and reverses its shading.
+    splitDepthParts(highlightRaster(r,[ramp.slice(0,6)]),key).forEach((part,i)=>art.set(key+'-hover-part-'+i,part));
     const stand=STANDS.find(s=>s.key===key);if(!stand)throw Error('Missing finished stand '+key);
     art.set(key+'-stage-shadow',buildStageShadow(stand));art.set(key+'-stage-drift',buildStageDrift(stand));
   }
   for(let f=0;f<4;f++){art.set('fire-'+f,buildFire(f));art.set('instrument0-'+f,buildInstrument(f));art.set('instrument1-'+f,buildInstrument(f,1));art.set('tent-'+f,buildTent(f));art.set('tent-alt-'+f,buildTent(f,1));art.set('supplies-'+f,buildSupplies());art.set('skimmer-'+f,buildSkimmer(f));}
   art.set('shrike',buildShrike());SMOKE_FRAMES.forEach((r,f)=>art.set('smoke-'+f,r));art.set('footprint',FOOTPRINT);
+  const tide=new Raster(2,1);tide.set(0,0,INDEX.anomaly[0]);tide.set(1,0,INDEX.anomaly[1]);
+  cycleFrames(tide,INDEX.anomaly,2).forEach((r,f)=>art.set('tide-'+f,r));
   for(let v=0;v<3;v++)art.set('windstone-'+v,buildWindstone(v));
   for(let f=0;f<2;f++)art.set('sun-'+f,buildSun(f));
   PILGRIM_FRAMES.forEach((frames,i)=>frames.forEach((r,f)=>{art.set(`pilgrim-${i}-${f}`,r);art.set(`pilgrim-tiny-${i}-${f}`,tinyPilgrim(i));}));

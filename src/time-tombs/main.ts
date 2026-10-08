@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { TimeTombsScene } from "./TimeTombsScene";
+import { PorcelainScene } from "./PorcelainScene";
 import type { SceneHost } from "./types";
 import {VALLEY_SOURCE,VALLEY_EXCERPT} from './book-excerpts.js';
 
@@ -46,7 +47,7 @@ export function mount(host: SceneHost): Phaser.Game {
       height: Math.max(1, host.shell.clientHeight)
     },
     fps: { target: 60, min: 30 },
-    scene: [new TimeTombsScene(host)]
+    scene: [new URLSearchParams(location.search).get('art')==='porcelain'?new PorcelainScene(host):new TimeTombsScene(host)]
   });
 
   return activeGame;

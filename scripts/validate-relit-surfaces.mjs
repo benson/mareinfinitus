@@ -8,7 +8,7 @@ const builders=fs.readdirSync(art).filter(name=>name.endsWith('-relit.js')).sort
 const violations=[];
 for(const name of builders){
   const source=fs.readFileSync(path.join(art,name),'utf8');
-  for(const token of ['dither(', 'prng('])if(source.includes(token))violations.push(`${name}: contains ${token}`);
+  for(const token of ['dither(', 'prng(', '.shape(', 'shadeBox(', 'shadeSphere(', 'shadePyramid('])if(source.includes(token))violations.push(`${name}: contains ${token}`);
 }
 if(violations.length){
   console.error('Relit surface gate failed. Monument builders must use authored masks and solid shade bands:');

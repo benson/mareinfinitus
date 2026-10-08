@@ -3,6 +3,9 @@ import path from 'node:path';
 import process from 'node:process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import sharp from 'sharp';
+import {colorCount,layerColors} from '../src/time-tombs/art/palette-audit.js';
+import {buildArt} from '../src/time-tombs/art/world.js';
+import {composeEstablishing} from '../src/time-tombs/art/stage-study.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const referenceRoot=path.join(root,'docs','art-direction','reference','genesis');
@@ -39,6 +42,14 @@ let builderArgs;
 try{builderArgs=JSON.parse(options.args);}catch{usage('--args must be valid JSON');}
 const sprite=builder(builderArgs);
 if(!sprite||!Number.isInteger(sprite.width)||!Number.isInteger(sprite.height)||typeof sprite.toRGBA!=='function')usage('Sprite builder must return a Raster');
+const colors=colorCount(sprite);
+if(colors>15)throw new Error('Sprite exceeds 15 colors: '+colors);
+if(options['scene-check']==='true'){
+ const layers=layerColors(buildArt()),frame=colorCount(composeEstablishing(2.5));
+ for(const [name,count] of Object.entries(layers))if(count>31)throw new Error(name+' layer exceeds 31 colors: '+count);
+ if(frame>61)throw new Error('Frame exceeds 61 colors: '+frame);
+ console.log(JSON.stringify({palette:{sprite:colors,layers,frame}}));
+}
 
 const metadata=await sharp(referencePath).metadata();
 if(left+width>(metadata.width??0)||top+height>(metadata.height??0))usage(`Crop ${options.crop} exceeds ${metadata.width}x${metadata.height} reference`);
@@ -102,4 +113,8 @@ const defaultName=`${path.basename(referencePath,'.png')}-${exportName}-compare.
 const outputPath=path.resolve(root,options.output??path.join('output','time-tombs','compare',defaultName));
 fs.mkdirSync(path.dirname(outputPath),{recursive:true});
 await sharp({create:{width:sheetWidth,height:sheetHeight,channels:4,background}}).composite(composites).png().toFile(outputPath);
+// Individual rows stay readable in previews without shrinking a tall sheet.
+for (const [i, suffix] of ['1x', '3x', 'gray', 'squint'].entries()) {
+  await fs.promises.writeFile(outputPath.replace(/\.png$/i, `-${suffix}.png`), rows[i]);
+}
 console.log(JSON.stringify({output:outputPath,reference:path.relative(root,referencePath),crop:{left,top,width,height},previous:previous&&{path:path.relative(root,previous.path),width:previous.width,height:previous.height},sprite:{module:path.relative(root,modulePath),export:exportName,width:sprite.width,height:sprite.height},columns:previous?['reference','previous','candidate']:['reference','candidate'],rows:['1x color','3x nearest color','3x nearest grayscale','3x squint']},null,2));

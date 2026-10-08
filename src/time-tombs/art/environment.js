@@ -1,5 +1,7 @@
 import {INDEX as I} from './palette.js';
 import {Raster,fromMask} from './raster.js';
+import {cycleFrames} from './tiles/assemble.js';
+export {tiledTent as buildTent} from './tiles/camp.js';
 import {WORLD} from '../space.js';
 import {patternAt} from './material-patterns.js';
 import {buildTerrain} from './terrain.js';
@@ -46,27 +48,6 @@ export function buildGround() {
   path(r,[[1560,456],approach('caves')]);
   return r;
 }
-export function buildTent(frame=0,variant=0) {
-  const r=new Raster(36,25),c=variant?I.linen:I.cloth,sway=[0,1,2,1][frame%4];
-  // A front entrance and a receding roof share their ridge/corner vertices.
-  r.shape([[12,3],[20,0],[34,19],[26,23]],()=>c[1]);
-  r.shape([[2,23],[12,3],[26,23]],()=>c[2]);
-  r.line(12,3,20,0,c[3]);r.line(12,3,3,21,c[3]);
-  r.shape([[14,7],[20,11],[30,20],[26,22],[21,17]],()=>c[0]);
-  r.shape([[10,8],[8,18],[4,22],[8,14]],()=>c[1]);
-  r.line(19,5,27,15,c[2]);r.line(23,9,30,17,c[2]);
-  r.line(8,11,7,19,c[3]);
-  // Cloth bows between fixed seams; repairs move with that panel, not in space.
-  r.line(13,9,19,12+sway%2,c[2]);r.line(19,12+sway%2,27,16,c[2]);
-  const repair=patternAt('tent-repair',variant),patchX=5+repair.value%3,patchY=17;
-  r.rect(patchX,patchY,3,3,c[1]);r.set(patchX,patchY,c[3]);r.set(patchX+2,patchY+2,c[3]);
-  for(const [x,y] of [[17,7],[20,11],[25,16]])r.set(x,y,c[3]);
-  r.shape([[12,10],[10-sway,23],[19,23]],()=>c[0]);
-  r.line(12,11,17+sway,22,c[3]);
-  r.line(3,22,8,22-sway%2,c[3]);r.line(20,22,25,22,c[1]);
-  if(variant){r.line(20,0,25,1+sway%2,c[3]);r.set(25,2+sway%2,c[2]);r.rect(21,20,4,2,c[1]);}
-  r.line(4,18,0,24,I.accent[1]);r.line(31,16,35,24,I.accent[1]);return r;
-}
 export function buildSupplies(){
   const r=new Raster(23,12),c=I.cloth;
   // Rolled bedding: cylindrical highlight, spiral end and two tight straps.
@@ -79,8 +60,10 @@ export function buildSupplies(){
   r.blit(fromMask(['.aaa.','abcba','abb.a','.aa..'],{a:I.uniform[1],b:I.uniform[2],c:I.obsidian[0]}),10,8);return r;
 }
 export function buildFire(frame=0) {
-  const rows=[['...a...','..aba..','..bcb..','.abcba.','.abcb..','..bb...','..aa...'],['.......','....a..','..aba..','..bcb..','.abcba.','.abbba.','..aaa..'],['.......','..a....','..ba...','.abca..','.abcb..','..bba..','..aaa..'],['...a...','...b...','..aba..','..bcb..','.abcba.','..bba..','..aaa..']][frame];
-  const r=new Raster(9,10);r.blit(fromMask(rows,{a:I.fire[0],b:I.fire[1],c:I.fire[3]}),1,0);r.line(1,8,7,9,I.stone[1]);r.line(1,9,7,8,I.stone[2]);return r;
+  const r=new Raster(9,10);
+  r.blit(fromMask(['...a...','..aba..','..bcb..','.abcba.','.abcb..','..bb...','..aa...'],{a:I.fire[0],b:I.fire[1],c:I.fire[3]}),1,0);
+  r.line(1,8,7,9,I.stone[1]);r.line(1,9,7,8,I.stone[2]);
+  return cycleFrames(r,[I.fire[0],I.fire[1],I.fire[3]],4)[frame%4];
 }
 export function buildInstrument(frame=0,variant=0) {
   const r=new Raster(15,24),body=I.obsidian[1],edge=I.uniform[1],brass=I.accent[1];

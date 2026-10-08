@@ -14,6 +14,7 @@ import {ENTITIES,assetFor,entityAnchor} from './entities.js';
 import {planeAt} from './art/geometry.js';
 import {actorOrigin,spriteOrigin,attachmentPoint} from './transforms.js';
 import {projectGround,elevationAt,terrainOccludes,TERRAIN_REVISION} from './surface.js';
+import {LAYERS,layerWidth,layerX,pickX,actorFactor,subjectFactor,PARALLAX_ANCHOR} from './parallax.js';
 
 type Subject={entry:FieldEntry;sprite:Phaser.GameObjects.Image;key:string;actor?:number;uid?:string;parts?:Phaser.GameObjects.Image[];groundX?:number;groundBase?:number;lift?:number;baseZ?:number;visibleMask?:Silhouette;rasterStamp?:string;shadow?:{sprite:Phaser.GameObjects.Image;stamp:string;key:string}};
 type Silhouette=ReturnType<typeof silhouette>;
@@ -29,6 +30,9 @@ export class TimeTombsScene extends Phaser.Scene {
   private footprints!:Phaser.GameObjects.Graphics;
   private firelight!:Phaser.GameObjects.Graphics;
   private clouds:Phaser.GameObjects.Image[]=[];
+  private backdrops:Array<{image:Phaser.GameObjects.Image;key:string;factor:number;top:number;bottom:number;width?:number}>=[];
+  private paletteFocus:string|null=null;
+  private parallaxCompensation=0;
   private shadowStamp='';
   private tombLights:Array<{key:string;sprite:Phaser.GameObjects.Image;parts:Phaser.GameObjects.Image[]}>=[];
   private audio?:ValleyAudio;
@@ -56,21 +60,24 @@ export class TimeTombsScene extends Phaser.Scene {
       t.refresh();t.setFilter(Phaser.Textures.FilterMode.NEAREST);
       if(!['sky','ground','ridges','foreground'].includes(key)&&!key.includes('-stage-')&&!key.endsWith('-shadow')&&!key.includes('-light-'))this.masks.set(key,silhouette(r));
     }
-    this.add.image(0,0,'sky').setOrigin(0).setDepth(-1000);
+    this.addBand('sky',LAYERS.sky,-1000,0,360);
     this.addSubject('TT-27','sun-0',842,30,-920);
     this.addSubject('TT-30','moon',171,35,-920);
-    this.add.image(0,0,'ridges').setOrigin(0).setDepth(-900);
-    this.add.image(0,0,'ground').setOrigin(0).setDepth(-800);
+    this.addBand('ridges',LAYERS.far,-900,0,360);
+    this.addBand('ground',LAYERS.shelf,-800,0,270);
+    this.addBand('ground',LAYERS.floor,-799,270,315);
+    this.addBand('ground',LAYERS.camp,-798,315,360);
     for(const p of ENTITIES){
-      if(PLACEMENTS.some(t=>t.uid===p.uid))this.add.image(0,0,p.key+'-stage-shadow').setOrigin(0).setDepth(p.base-.2);
+      const factor=subjectFactor(p.key,p.base);
+      if(PLACEMENTS.some(t=>t.uid===p.uid))this.add.image(layerX(0,factor),0,p.key+'-stage-shadow').setOrigin(0).setScrollFactor(factor,1).setDepth(p.base-.2);
       const key=this.art.has(p.key)?p.key:p.key+'-0',spec=assetFor(key),origin=spriteOrigin(key,{x:p.x,y:p.base});
       this.addSubject(p.id,key,origin.x,origin.y,p.base);
       const subject=this.subjects.at(-1)!;
       Object.assign(subject,{uid:p.uid,groundX:p.x,groundBase:p.base,baseZ:elevationAt(p.x,p.base)});
       if(PLACEMENTS.some(t=>t.uid===p.uid)){
-        const parts=spec.planes.map((plane:{row:number},i:number)=>this.add.image(origin.x,origin.y,p.key+'-part-'+i).setOrigin(0).setDepth(p.base-spec.pivot[1]+plane.row));
+        const parts=spec.planes.map((plane:{row:number},i:number)=>this.add.image(layerX(origin.x,factor),origin.y,p.key+'-part-'+i).setOrigin(0).setScrollFactor(factor,1).setDepth(p.base-spec.pivot[1]+plane.row));
         subject.sprite.destroy();subject.sprite=parts[0];subject.parts=parts;
-        this.add.image(0,0,p.key+'-stage-drift').setOrigin(0).setDepth(p.base+.2);
+        this.add.image(layerX(0,factor),0,p.key+'-stage-drift').setOrigin(0).setScrollFactor(factor,1).setDepth(p.base+.2);
       }
     }
     this.addSubject('TT-31','shrike',419,131,151);
@@ -81,7 +88,7 @@ export class TimeTombsScene extends Phaser.Scene {
     this.footprints=this.add.graphics().setDepth(-650);
     this.firelight=this.add.graphics().setDepth(-600);
     this.effects=this.add.graphics().setDepth(500);
-    this.add.image(0,0,'foreground').setOrigin(0).setDepth(9000);
+    this.addBand('foreground',LAYERS.near,9000,0,360);
     this.highlight=this.add.graphics().setDepth(10000);
     this.cameras.main.setBackgroundColor('#000024');
     this.cameras.main.setBounds(WORLD.left,WORLD.top,WORLD.width,WORLD.height);
@@ -95,6 +102,7 @@ export class TimeTombsScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE,this.resizeCamera,this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN,this.shutdown,this);
     const debug={
+      parallax:()=>({bands:this.backdrops.map(b=>({key:b.key,factor:b.factor,width:b.width,top:b.top,bottom:b.bottom})),subjects:this.subjects.map(s=>({key:s.key,factor:s.sprite.scrollFactorX,texture:s.sprite.texture.key,screenX:this.cameras.main.x+(s.sprite.x-this.cameras.main.scrollX*s.sprite.scrollFactorX-this.parallaxCompensation)*this.displayScale,screenY:this.cameras.main.y+(s.sprite.y-this.cameras.main.worldView.y)*this.displayScale,shadowFactor:s.shadow?.sprite.scrollFactorX}))}),
       snapshot:()=>({renderer:'procedural-raster',pixelScale:this.displayScale,time:this.expedition.time,camera:{x:this.cameras.main.scrollX,y:this.cameras.main.scrollY},viewport:{x:this.cameras.main.x,y:this.cameras.main.y,width:this.cameras.main.width,height:this.cameras.main.height,worldX:this.cameras.main.worldView.x,worldY:this.cameras.main.worldView.y},textureCount:this.art.size,light:sunlightAt(this.expedition.time),shadowStamp:this.shadowStamp,shadowFingerprint:this.art.get('crystal-stage-shadow')!.data.reduce((h,v)=>(Math.imul(h,31)+v)>>>0,1),actors:this.expedition.actors.map(a=>({...a})),subjects:this.subjects.map(s=>({id:s.entry.id,key:s.key,x:s.sprite.x,y:s.sprite.y,width:this.art.get(s.key)?.width??s.sprite.width,height:this.art.get(s.key)?.height??s.sprite.height,displayWidth:s.sprite.displayWidth,displayHeight:s.sprite.displayHeight})),echoes:this.echoes.map(e=>({...e})),hovered:this.hovered?.id??null}),
       geometry:()=>this.subjects.filter(s=>s.uid).map(s=>({uid:s.uid,key:s.key,x:s.sprite.x,y:s.sprite.y,depth:s.sprite.depth,parts:s.parts?.map(p=>p.depth),shadow:s.shadow?.stamp,shadowDepth:s.shadow?.sprite.depth,mask:s.visibleMask?.mask.reduce((n,v)=>n+v,0)})),
       placeActor:(id:number,x:number,y:number)=>{const a=this.expedition.actors[id];Object.assign(a,{x,y,vx:0,vy:0,frame:4,navigation:null});this.update(0,0);},
@@ -110,13 +118,34 @@ export class TimeTombsScene extends Phaser.Scene {
   }
   private addSubject(id:string,key:string,x:number,y:number,depth:number,actor?:number):void {
     const entry=GUIDE.find(e=>e.id===id);if(!entry)throw new Error('Missing guide entry '+id);
-    const sprite=this.add.image(Math.round(x),Math.round(y),key).setOrigin(0).setDepth(depth);
+    const factor=subjectFactor(key,depth);
+    const sprite=this.add.image(layerX(Math.round(x),factor),Math.round(y),key).setOrigin(0).setScrollFactor(factor,1).setDepth(depth);
     this.subjects.push({entry,sprite,key,actor});
   }
   private mountScale():number {
     if(this.scale.width>=3000&&this.scale.height>=1300)return 4;
     if(this.scale.width>=1800&&this.scale.height>=1000)return 3;
     return 2;
+  }
+  private addBand(key:string,factor:number,depth:number,top:number,bottom:number):void {
+    const image=this.add.image(0,0,key).setOrigin(0).setScrollFactor(factor,1).setDepth(depth);
+    this.backdrops.push({image,key,factor,top,bottom});
+  }
+  private resizeBands(viewport:number):void {
+    for(const [i,band] of this.backdrops.entries()){
+      const width=layerWidth(viewport,band.factor);
+      if(width===band.width)continue;
+      const source=this.art.get(band.key)!,r=new Raster(width,source.height),origin=Math.round((1-band.factor)*PARALLAX_ANCHOR);
+      for(let y=band.top;y<band.bottom;y++)for(let x=0;x<width;x++){
+        // Reveal native pixels; backgrounds continue with their edge material
+        // outside the finite landmark map. No interpolation or sprite scaling.
+        const sx=Math.max(0,Math.min(source.width-1,x+origin));
+        r.set(x,y,source.get(sx,y));
+      }
+      const key='parallax-band-'+i;
+      if(this.textures.exists(key)){band.image.setTexture(band.key);this.textures.remove(key);}
+      this.upload(key,r);band.image.setTexture(key);band.width=width;
+    }
   }
   private actorKey(id:number,frame:number,y:number):string {
     return `${y<270?'pilgrim-tiny-':y<315?'pilgrim-ramp-':'pilgrim-'}${id}-${frame}`;
@@ -130,6 +159,15 @@ export class TimeTombsScene extends Phaser.Scene {
     this.worldCenter.x=Phaser.Math.Clamp(this.worldCenter.x,WORLD.left+halfWidth,WORLD.left+WORLD.width-halfWidth);
     this.worldCenter.y=Phaser.Math.Clamp(this.worldCenter.y,WORLD.top+halfHeight,WORLD.top+WORLD.height-halfHeight);
     camera.centerOn(this.worldCenter.x,this.worldCenter.y);
+    // Phaser scrollX is measured before its zoom-origin translation. Cancel
+    // that translation for fractional scroll factors so parallax is measured
+    // in native world pixels at every integer zoom.
+    const compensation=w*(1-1/this.displayScale)/2,change=compensation-this.parallaxCompensation;
+    for(const object of this.children.list){
+      if(object instanceof Phaser.GameObjects.Image)object.x+=change*(1-object.scrollFactorX);
+    }
+    this.parallaxCompensation=compensation;
+    this.resizeBands(w/this.displayScale);
   }
   update(_time:number,delta:number):void {
     const dt=this.debugPaused?0:Math.min(delta/1000,.25);updateExpedition(this.expedition,dt);const t=this.expedition.time;
@@ -144,7 +182,8 @@ export class TimeTombsScene extends Phaser.Scene {
       if(s.actor!==undefined) {
         const a=this.expedition.actors[s.actor];key=this.actorKey(a.id,a.frame,a.y);
         const origin=actorOrigin(a,key);
-        s.sprite.setPosition(origin.x,origin.y).setFlipX(a.face<0).setDepth(Math.round(a.y));
+        const factor=actorFactor(a.y);
+        s.sprite.setPosition(layerX(origin.x,factor)+this.parallaxCompensation*(1-factor),origin.y).setScrollFactor(factor,1).setFlipX(a.face<0).setDepth(Math.round(a.y));
         Object.assign(s,{groundX:a.x,groundBase:a.y,baseZ:Math.round(a.y)-assetFor(key).pivot[1]-origin.y,lift:0});
       } else if(key.startsWith('tent-'))key=key.slice(0,key.lastIndexOf('-')+1)+Math.floor(this.expedition.clothPhase+s.sprite.x*.03)%4;
       else if(key.startsWith('fire-'))key='fire-'+Math.floor(t*5)%4;
@@ -174,7 +213,18 @@ export class TimeTombsScene extends Phaser.Scene {
     this.audio?.update(t,this.worldCenter);
     this.drawEffects();
     if(!this.host.screensaverMode&&!this.guideFocus)this.refreshHover();
+    this.paletteFocus=this.guideFocus?.id??this.hovered?.id??null;
+    this.updateMonumentPalettes(t);
     if(this.guideFocus)this.drawHighlight(this.guideFocus);else if(this.inspectHeld&&this.hovered)this.drawHighlight(this.hovered);
+  }
+  private updateMonumentPalettes(time:number):void {
+    for(const s of this.subjects){
+      if(!s.parts)continue;
+      const born=this.tombResponses.get(s.key),responding=born!==undefined&&time-born<.6;
+      if(born!==undefined&&!responding)this.tombResponses.delete(s.key);
+      const state=this.paletteFocus===s.entry.id||responding?'-hover':'';
+      s.parts.forEach((part,i)=>part.setTexture(s.key+state+'-part-'+i));
+    }
   }
   private upload(key:string,r:Raster):void {
     const texture=(this.textures.exists(key)?this.textures.get(key):this.textures.createCanvas(key,r.width,r.height)) as Phaser.Textures.CanvasTexture;
@@ -186,7 +236,8 @@ export class TimeTombsScene extends Phaser.Scene {
     const before=this.art.get(s.key),after=this.art.get(key);if(!after)throw Error('Missing authored texture '+key);
     if(before&&(before.width!==after.width||before.height!==after.height)){
       const {x,y,depth,visible,alpha,flipX}=s.sprite;s.sprite.destroy();
-      s.sprite=this.add.image(x,y,key).setOrigin(0).setDepth(depth).setVisible(visible).setAlpha(alpha).setFlipX(flipX);
+      const factor=subjectFactor(key,s.groundBase??depth);
+      s.sprite=this.add.image(x,y,key).setOrigin(0).setScrollFactor(factor,1).setDepth(depth).setVisible(visible).setAlpha(alpha).setFlipX(flipX);
       s.visibleMask=undefined;s.rasterStamp=undefined;
     }else s.sprite.setTexture(key);
     s.key=key;
@@ -197,7 +248,7 @@ export class TimeTombsScene extends Phaser.Scene {
     if(stamp===s.rasterStamp)return;s.rasterStamp=stamp;
     const source=this.art.get(s.key)!,r=source.clone();
     for(let y=0;y<r.height;y++)for(let x=0;x<r.width;x++){
-      const wx=s.sprite.x+(s.sprite.flipX?r.width-1-x:x);
+      const wx=s.sprite.x+(1-s.sprite.scrollFactorX)*(PARALLAX_ANCHOR-this.parallaxCompensation)+(s.sprite.flipX?r.width-1-x:x);
       if(terrainOccludes(wx,s.sprite.y+y,s.groundBase))r.set(x,y,255);
     }
     // Phaser retains a CanvasTexture's original dimensions. Give each native
@@ -225,21 +276,25 @@ export class TimeTombsScene extends Phaser.Scene {
       const key=`shadow-${s.uid}-${r.width}x${r.height}`;
       if(s.shadow&&s.shadow.key!==key){s.shadow.sprite.destroy();s.shadow=undefined;}
       this.upload(key,r);
-      if(!s.shadow)s.shadow={sprite:this.add.image(x-pad,y,key).setOrigin(0).setDepth(-700),stamp,key};
-      s.shadow.stamp=stamp;s.shadow.sprite.setPosition(x-pad,y).setAlpha(s.sprite.alpha*(s.uid==='skimmer'?.35:s.actor!==undefined?.4:1));
+      const factor=s.sprite.scrollFactorX;
+      const shadowX=layerX(x-pad,factor)+this.parallaxCompensation*(1-factor);
+      if(!s.shadow)s.shadow={sprite:this.add.image(shadowX,y,key).setOrigin(0).setScrollFactor(factor,1).setDepth(-700),stamp,key};
+      s.shadow.stamp=stamp;s.shadow.sprite.setPosition(shadowX,y).setScrollFactor(factor,1).setAlpha(s.sprite.alpha*(s.uid==='skimmer'?.35:s.actor!==undefined?.4:1));
     }
   }
   private drawEffects():void {
     const t=this.expedition.time;this.effects.clear();this.footprints.clear();this.firelight.clear();
+    const effectX=(x:number,y:number)=>layerX(x,actorFactor(y))+(1-actorFactor(y))*this.cameras.main.worldView.x;
     const color=(index:number)=>{const c=PALETTE[index];return(c[0]<<16)|(c[1]<<8)|c[2];};
     for(const trace of this.expedition.traces){
       const alpha=Math.max(0,Math.min(.38,(60-t+trace.born)/70));
       const p=projectGround(trace.x,trace.y),footprint=this.art.get('footprint')!;
       this.footprints.fillStyle(color(INDEX.sand[0]),alpha);
-      for(let y=0;y<footprint.height;y++)for(let x=0;x<footprint.width;x++)if(footprint.get(x,y)!==255)this.footprints.fillRect(p.x+(trace.face<0?-x:x),p.y+y-1,1,1);
+      for(let y=0;y<footprint.height;y++)for(let x=0;x<footprint.width;x++)if(footprint.get(x,y)!==255)this.footprints.fillRect(effectX(p.x,trace.y)+(trace.face<0?-x:x),p.y+y-1,1,1);
     }
-    for(const g of sandAt(t))this.effects.fillStyle(color(INDEX.sand[3]),g.alpha).fillRect(g.x,g.y,1,1);
-    for(const g of tideDustAt(t))this.effects.fillStyle(color(INDEX.anomaly[0]),g.alpha).fillRect(g.x,g.y,1,1);
+    for(const g of sandAt(t))this.effects.fillStyle(color(INDEX.sand[3]),g.alpha).fillRect(effectX(g.x,g.y),g.y,1,1);
+    const tidePalette=this.art.get('tide-'+Math.floor(t*2)%2)!;
+    for(const g of tideDustAt(t))this.effects.fillStyle(color(tidePalette.get(Math.abs(g.x)%2,0)),g.alpha).fillRect(effectX(g.x,g.y),g.y,1,1);
     for(const g of skimmerDustAt(t))this.footprints.fillStyle(color(INDEX.sand[2]),g.alpha).fillRect(g.x,g.y,2,1);
     const camp=campAt(t);
     for(const p of camp.smoke){
@@ -270,7 +325,7 @@ export class TimeTombsScene extends Phaser.Scene {
     let best:Subject|undefined,bestDepth=-Infinity;
     for(const s of this.subjects){
       if(!s.sprite.visible||s.sprite.alpha<.08)continue;
-      let lx=Math.floor(x-s.sprite.x),ly=Math.floor(y-s.sprite.y);if(s.sprite.flipX)lx=s.sprite.width-1-lx;
+      let lx=Math.floor(pickX(x,this.cameras.main.scrollX,s.sprite.scrollFactorX)-s.sprite.x),ly=Math.floor(y-s.sprite.y);if(s.sprite.flipX)lx=s.sprite.width-1-lx;
       const r=this.art.get(s.key)!,m=s.visibleMask??this.masks.get(s.key)!;
       if(lx<0||ly<0||lx>=r.width||ly>=r.height||!m.mask[ly*r.width+lx])continue;
       const depth=s.parts?s.parts[planeAt(s.key,lx,ly)].depth:s.sprite.depth;
@@ -308,7 +363,8 @@ export class TimeTombsScene extends Phaser.Scene {
       let left=r.width,right=0,top=r.height,bottom=0;
       for(let y=0;y<r.height;y++)for(let x=0;x<r.width;x++)if(m.mask[y*r.width+x]){left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}
       const cx=(left+right+1)/2;
-      this.worldCenter.set(subject.sprite.x+(subject.sprite.flipX?r.width-cx:cx),subject.sprite.y+(top+bottom+1)/2);
+      const half=this.cameras.main.width/(2*this.displayScale),factor=subject.sprite.scrollFactorX;
+      this.worldCenter.set((subject.sprite.x-this.parallaxCompensation*(1-factor)+(subject.sprite.flipX?r.width-cx:cx)-half)/factor+half,subject.sprite.y+(top+bottom+1)/2);
     }else if(entry.id==='TT-28'){
       const tide=tideAt(this.expedition.time);this.worldCenter.set(tide.active?tide.x:WORLD.focusX,217);
     }else if(entry.id==='TT-31'){
@@ -372,9 +428,10 @@ export class TimeTombsScene extends Phaser.Scene {
   private drawHighlight(entry:FieldEntry):void {
     this.highlight.clear().fillStyle(0xdbdb92,.9);
     for(const s of this.subjects.filter(s=>s.entry.id===entry.id)) {
+      if(s.parts)continue;
       if(!s.sprite.visible||s.sprite.alpha<.08)continue;
       const r=this.art.get(s.key)!,border=(s.visibleMask??this.masks.get(s.key)!).border;
-      for(const [x,y] of border)this.highlight.fillRect(s.sprite.x+(s.sprite.flipX?r.width-1-x:x),s.sprite.y+y,1,1);
+      for(const [x,y] of border)this.highlight.fillRect(s.sprite.x+(1-s.sprite.scrollFactorX)*this.cameras.main.scrollX+(s.sprite.flipX?r.width-1-x:x),s.sprite.y+y,1,1);
     }
   }
   private hideInspection():void {this.highlight?.clear();const t=document.querySelector<HTMLElement>('[data-inspection-tooltip]');if(t)t.hidden=true;}

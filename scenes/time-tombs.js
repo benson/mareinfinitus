@@ -25,7 +25,7 @@
     if (root.TimeTombsRuntime) return Promise.resolve(root.TimeTombsRuntime);
     return new Promise(function (resolve, reject) {
       var script = document.createElement('script');
-      script.src = new URL("../dist/time-tombs/time-tombs.js?v=86f567ed4948", bundleBase).href;
+      script.src = new URL("../dist/time-tombs/time-tombs.js?v=ab7b3556fdff", bundleBase).href;
       script.onload = function () { if (root.TimeTombsRuntime) resolve(root.TimeTombsRuntime); else reject(new Error("Missing Time Tombs runtime")); };
       script.onerror = function () { script.remove(); reject(new Error("Unable to load bundled Time Tombs runtime")); };
       document.head.appendChild(script);

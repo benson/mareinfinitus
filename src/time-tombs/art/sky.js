@@ -1,4 +1,5 @@
 import {Raster,prng,fromMask} from './raster.js';
+import {cycleFrames} from './tiles/assemble.js';
 import {INDEX as I} from './palette.js';
 import {WORLD} from '../space.js';
 
@@ -96,7 +97,7 @@ export function buildCloud(variant=0){
 }
 export function buildSun(frame=0){
   const r=fromMask(['......a......','...a.....a...','.....aaa.....','...aabbbaa...','...abcccba...','..abcccccba..','a.abcccccba.a','..abcccccba..','...abcccba...','...aabbbaa...','.....aaa.....','...a.....a...','......a......'],{a:I.sun[0],b:I.sun[1],c:I.fire[3]});
-  r.line(4,5,5,4,I.sun[1]);r.set(frame%2?3:9,frame%2?2:10,I.sun[1]);return r;
+  r.line(4,5,5,4,I.sun[1]);return cycleFrames(r,I.sun,2)[frame%2];
 }
 export function buildMoon(){
   return fromMask(['...aaaa...','..abbbba..','.abccbbba.','abbcddbbba','abbcddcbba','abbbccbbba','.abbbbba..','..abbba...','...aa.....'],{a:I.ridge[0],b:I.ridge[1],c:I.sky[2],d:I.sky[1]});

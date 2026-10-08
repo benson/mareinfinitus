@@ -1,6 +1,8 @@
 // Authoritative runtime geometry for the finished 1120x360 stage. Monument
 // coordinates are the STANDS table from stage-study.js; no metric scale or
 // independently tuned placement survives here.
+import {SPHINX_MAP} from './art/maps/sphinx.js';
+import {SPHINX} from './art/tiles/sphinx.js';
 const box=(l,t,r,b)=>[[l,t],[r,t],[r,b],[l,b]];
 const define=(size,grounding,footprint,planes,anchors={},pivot=[0,size[1]-1])=>({size,pivot,grounding,footprint,planes,anchors});
 const monument=(w,h,anchors={})=>define([w,h],[0,w-1,0],box(0,h-5,w,h),[{id:'body',row:h-1}],anchors);
@@ -14,7 +16,10 @@ export const ASSETS={
   crystal:monument(70,228,{approach:[35,235]}),
   jade:monument(150,108,{approach:[72,115]}),
   obelisk:monument(42,240,{approach:[21,247]}),
-  sphinx:monument(190,132,{approach:[95,139]}),
+  sphinx:define([190,132],[0,189,114],box(0,127,190,132),[
+    {id:'body',row:112},
+    {id:'forepaws',row:130,regions:SPHINX_MAP.filter(p=>p.front).map(p=>box(p.x,p.y,p.x+SPHINX[p.name].w,p.y+SPHINX[p.name].h))}
+  ],{approach:[95,139]}),
   tent:define([36,25],[0,35,19],[[10,19],[34,19],[26,23],[2,23]],[{id:'canvas',row:23}],{entry:[14,24]},[0,24]),
   'tent-alt':define([36,25],[0,35,19],[[10,19],[34,19],[26,23],[2,23]],[{id:'canvas',row:23}],{entry:[14,24]},[0,24]),
   supplies:define([23,12],[0,22,7],box(0,7,22,12),[{id:'gear',row:11}],{},[0,11]),
